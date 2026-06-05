@@ -7,13 +7,10 @@ try:
 except ImportError:  # pragma: no branch  # only hit in cibuildwheel
     pytestmark = pytest.mark.skip("pytest-codspeed needs to be installed")
 
-from yarl._quoting import _Quoter, _Unquoter
+from yarl._quoters import PATH_QUOTER, QUERY_QUOTER, QUOTER, UNQUOTER
+from yarl._quoting import _Quoter
 
 QUOTER_SLASH_SAFE = _Quoter(safe="/")
-QUOTER = _Quoter()
-UNQUOTER = _Unquoter()
-QUERY_QUOTER = _Quoter(safe="?/:@", protected="=+&;", qs=True, requote=False)
-PATH_QUOTER = _Quoter(safe="@:", protected="/+", requote=False)
 
 LONG_PATH = "/path/to" * 100
 LONG_QUERY = "a=1&b=2&c=3&d=4&e=5&f=6&g=7&h=8&i=9&j=0" * 25

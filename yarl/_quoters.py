@@ -4,19 +4,39 @@ from urllib.parse import quote
 
 from ._quoting import _Quoter, _Unquoter
 
-QUOTER = _Quoter(requote=False)
-REQUOTER = _Quoter()
-PATH_QUOTER = _Quoter(safe="@:", protected="/+", requote=False)
-PATH_REQUOTER = _Quoter(safe="@:", protected="/+")
-QUERY_QUOTER = _Quoter(safe="?/:@", protected="=+&;", qs=True, requote=False)
-QUERY_REQUOTER = _Quoter(safe="?/:@", protected="=+&;", qs=True)
-QUERY_PART_QUOTER = _Quoter(safe="?/:@", qs=True, requote=False)
-FRAGMENT_QUOTER = _Quoter(safe="?/:@", requote=False)
-FRAGMENT_REQUOTER = _Quoter(safe="?/:@")
+def _make_quoter_pair(
+    *,
+    safe: str = "",
+    protected: str = "",
+    qs: bool = False,
+) -> tuple[_Quoter, _Quoter]:
+    return (
+        _Quoter(safe=safe, protected=protected, qs=qs, requote=False),
+        _Quoter(safe=safe, protected=protected, qs=qs, requote=True),
+    )
 
+
+QUOTER, REQUOTER = _make_quoter_pair()
+
+_PATH_SAFE = "@:"
+_PATH_PROTECTED = "/+"
+PATH_QUOTER, PATH_REQUOTER = _make_quoter_pair(
+    safe=_PATH_SAFE, protected=_PATH_PROTECTED
+)
+
+_QUERY_SAFE = "?/:@"
+_QUERY_PROTECTED = "=+&;"
+QUERY_QUOTER, QUERY_REQUOTER = _make_quoter_pair(
+    safe=_QUERY_SAFE, protected=_QUERY_PROTECTED, qs=True
+)
+QUERY_PART_QUOTER = _Quoter(safe=_QUERY_SAFE, qs=True, requote=False)
+
+FRAGMENT_QUOTER, FRAGMENT_REQUOTER = _make_quoter_pair(safe=_QUERY_SAFE)
+
+_PATH_UNSAFE = "+"
 UNQUOTER = _Unquoter()
-PATH_UNQUOTER = _Unquoter(unsafe="+")
-PATH_SAFE_UNQUOTER = _Unquoter(ignore="/%", unsafe="+")
+PATH_UNQUOTER = _Unquoter(unsafe=_PATH_UNSAFE)
+PATH_SAFE_UNQUOTER = _Unquoter(ignore="/%", unsafe=_PATH_UNSAFE)
 QS_UNQUOTER = _Unquoter(qs=True)
 UNQUOTER_PLUS = _Unquoter(plus=True)  # to match urllib.parse.unquote_plus
 

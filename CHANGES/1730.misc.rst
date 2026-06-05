@@ -1,0 +1,1 @@
+Refactored internal quoter and unquoter instantiations in ``yarl._quoters`` to be more centralized and maintainable.
