@@ -1,0 +1,115 @@
+diff --git a/CHANGES/1730.feature.rst b/CHANGES/1730.feature.rst
+new file mode 100644
+index 0000000..f332b5f
+--- /dev/null
++++ b/CHANGES/1730.feature.rst
+@@ -0,0 +1,2 @@
++Added ``URL.without_user()`` to remove both user and password from a URL.
++-- by :user:`github-handle`
+diff --git a/docs/api.rst b/docs/api.rst
+index 704befb..d04ca03 100644
+--- a/docs/api.rst
++++ b/docs/api.rst
+@@ -612,6 +612,15 @@ section generates a new :class:`URL` instance.
+       >>> URL('http://user:pass@example.com').with_user(None)
+       URL('http://example.com')
+ 
++.. method:: URL.without_user()
++
++   Return a new URL with *user* and *password* removed.
++
++   .. doctest::
++
++      >>> URL('http://user:pass@example.com').without_user()
++      URL('http://example.com')
++
+ .. method:: URL.with_password(password)
+ 
+    Return a new URL with *password* replaced, auto-encode *password* if needed.
+diff --git a/run_tests.py b/run_tests.py
+new file mode 100644
+index 0000000..ab6514c
+--- /dev/null
++++ b/run_tests.py
+@@ -0,0 +1,5 @@
++import pytest
++import sys
++
++if __name__ == "__main__":
++    sys.exit(pytest.main(["-v", "tests/test_url_update_netloc.py"]))
+\ No newline at end of file
+diff --git a/tests/test_url_update_netloc.py b/tests/test_url_update_netloc.py
+index d1991e3..ea5c711 100644
+--- a/tests/test_url_update_netloc.py
++++ b/tests/test_url_update_netloc.py
+@@ -95,6 +95,49 @@ def test_with_user_None_when_password_present() -> None:
+     assert str(url.with_user(None)) == "http://example.com"
+ 
+ 
++def test_without_user() -> None:
++    url = URL("http://john@example.com")
++    url2 = url.without_user()
++    assert str(url2) == "http://example.com"
++    assert url2.user is None
++
++
++def test_without_user_and_password() -> None:
++    url = URL("http://john:pass@example.com")
++    url2 = url.without_user()
++    assert str(url2) == "http://example.com"
++    assert url2.user is None
++    assert url2.password is None
++
++
++def test_without_user_ipv6() -> None:
++    url = URL("http://john:pass@[::1]:8080/")
++    url2 = url.without_user()
++    assert str(url2) == "http://[::1]:8080/"
++    assert url2.user is None
++    assert url2.password is None
++
++
++def test_without_user_already_none() -> None:
++    url = URL("http://example.com")
++    url2 = url.without_user()
++    assert str(url2) == "http://example.com"
++    assert url2 is url
++
++
++def test_without_user_relative() -> None:
++    url = URL("path/to")
++    url2 = url.without_user()
++    assert str(url2) == "path/to"
++    assert url2 is url
++
++
++def test_without_user_encoded() -> None:
++    url = URL("http://%D0%B1:%D0%B2@example.com/path?q=1#frag")
++    url2 = url.without_user()
++    assert str(url2) == "http://example.com/path?q=1#frag"
++
++
+ def test_with_password() -> None:
+     url = URL("http://john@example.com")
+     assert str(url.with_password("pass")) == "http://john:pass@example.com"
+diff --git a/yarl/_url.py b/yarl/_url.py
+index 92b6655..8012d04 100644
+--- a/yarl/_url.py
++++ b/yarl/_url.py
+@@ -1135,6 +1135,16 @@ class URL:
+         netloc = make_netloc(user, password, encoded_host, self.explicit_port)
+         return from_parts(self._scheme, netloc, self._path, self._query, self._fragment)
+ 
++    def without_user(self) -> "URL":
++        """Return a new URL with user and password removed."""
++        if not (netloc := self._netloc):
++            return self
++        if self.raw_user is None and self.raw_password is None:
++            return self
++        encoded_host = self.host_subcomponent or ""
++        netloc = make_netloc(None, None, encoded_host, self.explicit_port)
++        return from_parts(self._scheme, netloc, self._path, self._query, self._fragment)
++
+     def with_password(self, password: str | None) -> "URL":
+         """Return a new URL with password replaced.
+ 
