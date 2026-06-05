@@ -1,0 +1,524 @@
+diff --git a/tests/test_update_query.py b/tests/test_update_query.py
+index 04fd663..ee757c8 100644
+--- a/tests/test_update_query.py
++++ b/tests/test_update_query.py
+@@ -112,6 +112,13 @@ def test_with_query_str_non_ascii_and_spaces() -> None:
+     assert url2.query_string == "a=1 2&b=знач"
+ 
+ 
++def test_with_query_str_quotes_literal_percent_sequences() -> None:
++    url = URL("http://example.com")
++    url2 = url.with_query("next=%2B")
++    assert url2.raw_query_string == "next=%252B"
++    assert url2.query_string == "next=%2B"
++
++
+ def test_with_query_int() -> None:
+     url = URL("http://example.com")
+     assert url.with_query({"a": 1}) == URL("http://example.com/?a=1")
+@@ -381,7 +388,12 @@ def test_update_query_with_non_ascii_as_str() -> None:
+     assert url.update_query("𝕦=𝕦") == url
+ 
+ 
+-# mod operator
++def test_update_query_str_reencodes_unsafe_query_value() -> None:
++    url = URL("http://example.com/?foo=bar")
++    url2 = url.update_query("next=%2B")
++    assert url2.raw_query_string == "foo=bar&next=%2B"
++    assert url2.query_string == "foo=bar&next=%2B"
++    assert url2.query["next"] == "+"
+ 
+ 
+ def test_update_query_with_mod_operator() -> None:
+diff --git a/tests/test_url.py b/tests/test_url.py
+index 615924b..138ce81 100644
+--- a/tests/test_url.py
++++ b/tests/test_url.py
+@@ -2481,6 +2481,14 @@ def test_requoting() -> None:
+     assert str(u) == "http://127.0.0.1/?next=http://example.com/"
+ 
+ 
++def test_requoting_preserves_existing_unsafe_percent_sequences() -> None:
++    u = URL("http://example.com/%2F?next=%2B#%23")
++    assert u.raw_path == "/%2F"
++    assert u.raw_query_string == "next=%2B"
++    assert u.raw_fragment == "%23"
++    assert str(u) == "http://example.com/%2F?next=%2B#%23"
++
++
+ def test_join_query_string() -> None:
+     """Test that query strings are correctly joined."""
+     original = URL("http://127.0.0.1:62869")
+diff --git a/tests/test_url_build.py b/tests/test_url_build.py
+index bb08045..8f17c06 100644
+--- a/tests/test_url_build.py
++++ b/tests/test_url_build.py
+@@ -95,6 +95,20 @@ def test_build_with_scheme_and_host() -> None:
+     assert u == URL("http://127.0.0.1")
+ 
+ 
++def test_build_quotes_literal_percent_sequences() -> None:
++    u = URL.build(
++        scheme="http",
++        host="example.com",
++        path="/%2F",
++        query_string="next=%2B",
++        fragment="%23",
++    )
++    assert str(u) == "http://example.com/%252F?next=%252B#%2523"
++    assert u.raw_path == "/%252F"
++    assert u.raw_query_string == "next=%252B"
++    assert u.raw_fragment == "%2523"
++
++
+ @pytest.mark.parametrize(
+     ("port", "exc", "match"),
+     [
+diff --git a/yarl/_parse.py b/yarl/_parse.py
+index 99dab1a..bd2224f 100644
+--- a/yarl/_parse.py
++++ b/yarl/_parse.py
+@@ -5,7 +5,7 @@ import unicodedata
+ from functools import lru_cache
+ from urllib.parse import scheme_chars, uses_netloc
+ 
+-from ._quoters import QUOTER, UNQUOTER_PLUS
++from ._quoters import quote_userinfo, unquote_query_part
+ 
+ # Leading and trailing C0 control and space to be stripped per WHATWG spec.
+ # == "".join([chr(i) for i in range(0, 0x20 + 1)])
+@@ -209,12 +209,12 @@ def make_netloc(
+         if not user:
+             user = ""
+         elif encode:
+-            user = QUOTER(user)
++            user = quote_userinfo(user)
+         if encode:
+-            password = QUOTER(password)
++            password = quote_userinfo(password)
+         user = f"{user}:{password}"
+     elif user and encode:
+-        user = QUOTER(user)
++        user = quote_userinfo(user)
+     return f"{user}@{ret}" if user else ret
+ 
+ 
+@@ -228,5 +228,5 @@ def query_to_pairs(query_string: str) -> list[tuple[str, str]]:
+         return pairs
+     for k_v in query_string.split("&"):
+         k, _, v = k_v.partition("=")
+-        pairs.append((UNQUOTER_PLUS(k), UNQUOTER_PLUS(v)))
++        pairs.append((unquote_query_part(k), unquote_query_part(v)))
+     return pairs
+diff --git a/yarl/_query.py b/yarl/_query.py
+index 3f5ca22..5fcec35 100644
+--- a/yarl/_query.py
++++ b/yarl/_query.py
+@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, SupportsInt, Union, cast
+ 
+ from multidict import istr
+ 
+-from ._quoters import QUERY_PART_QUOTER, QUERY_QUOTER
++from ._quoters import quote_query, quote_query_part
+ 
+ SimpleQuery = Union[str, SupportsInt, float]
+ QueryVariable = Union[SimpleQuery, Sequence[SimpleQuery]]
+@@ -52,9 +52,8 @@ def get_str_query_from_sequence_iterable(
+ 
+     The sequence of values must be a list or tuple.
+     """
+-    quoter = QUERY_PART_QUOTER
+     pairs = [
+-        f"{quoter(k)}={quoter(v if type(v) is str else query_var(v))}"
++        f"{quote_query_part(k)}={quote_query_part(v if type(v) is str else query_var(v))}"
+         for k, val in items
+         for v in (
+             val if type(val) is not str and isinstance(val, (list, tuple)) else (val,)
+@@ -73,11 +72,11 @@ def get_str_query_from_iterable(
+     The values are not allowed to be sequences, only single values are
+     allowed. For sequences, use `_get_str_query_from_sequence_iterable`.
+     """
+-    quoter = QUERY_PART_QUOTER
+     # A listcomp is used since listcomps are inlined on CPython 3.12+ and
+     # they are a bit faster than a generator expression.
+     pairs = [
+-        f"{quoter(k)}={quoter(v if type(v) is str else query_var(v))}" for k, v in items
++        f"{quote_query_part(k)}={quote_query_part(v if type(v) is str else query_var(v))}"
++        for k, v in items
+     ]
+     return "&".join(pairs)
+ 
+@@ -107,7 +106,7 @@ def get_str_query(*args: Any, **kwargs: Any) -> str | None:
+     if type(query) is dict:
+         return get_str_query_from_sequence_iterable(query.items())
+     if type(query) is str or isinstance(query, str):
+-        return QUERY_QUOTER(query)
++        return quote_query(query)
+     if isinstance(query, Mapping):
+         return get_str_query_from_sequence_iterable(query.items())
+     if isinstance(query, (bytes, bytearray, memoryview)):
+diff --git a/yarl/_quoters.py b/yarl/_quoters.py
+index 78f77ca..7101495 100644
+--- a/yarl/_quoters.py
++++ b/yarl/_quoters.py
+@@ -21,6 +21,70 @@ QS_UNQUOTER = _Unquoter(qs=True)
+ UNQUOTER_PLUS = _Unquoter(plus=True)  # to match urllib.parse.unquote_plus
+ 
+ 
++def quote_userinfo(value: str | None) -> str | None:
++    return QUOTER(value)
++
++
++def requote_userinfo(value: str | None) -> str | None:
++    return REQUOTER(value)
++
++
++def unquote(value: str | None) -> str | None:
++    return UNQUOTER(value)
++
++
++def unquote_userinfo(value: str | None) -> str | None:
++    return unquote(value)
++
++
++def quote_path(value: str | None) -> str | None:
++    return PATH_QUOTER(value)
++
++
++def requote_path(value: str | None) -> str | None:
++    return PATH_REQUOTER(value)
++
++
++def unquote_path(value: str | None) -> str | None:
++    return PATH_UNQUOTER(value)
++
++
++def unquote_path_safe(value: str | None) -> str | None:
++    return PATH_SAFE_UNQUOTER(value)
++
++
++def quote_query(value: str | None) -> str | None:
++    return QUERY_QUOTER(value)
++
++
++def requote_query(value: str | None) -> str | None:
++    return QUERY_REQUOTER(value)
++
++
++def quote_query_part(value: str | None) -> str | None:
++    return QUERY_PART_QUOTER(value)
++
++
++def unquote_query(value: str | None) -> str | None:
++    return QS_UNQUOTER(value)
++
++
++def unquote_query_part(value: str | None) -> str | None:
++    return UNQUOTER_PLUS(value)
++
++
++def quote_fragment(value: str | None) -> str | None:
++    return FRAGMENT_QUOTER(value)
++
++
++def requote_fragment(value: str | None) -> str | None:
++    return FRAGMENT_REQUOTER(value)
++
++
++def unquote_fragment(value: str | None) -> str | None:
++    return unquote(value)
++
++
+ def human_quote(s: str | None, unsafe: str) -> str | None:
+     if not s:
+         return s
+@@ -30,3 +94,19 @@ def human_quote(s: str | None, unsafe: str) -> str | None:
+     if s.isprintable():
+         return s
+     return "".join(c if c.isprintable() else quote(c) for c in s)
++
++
++def human_quote_userinfo(value: str | None) -> str | None:
++    return human_quote(value, "#/:?@[]\\")
++
++
++def human_quote_path(value: str | None) -> str | None:
++    return human_quote(value, "#?")
++
++
++def human_quote_query_part(value: str | None) -> str | None:
++    return human_quote(value, "#&+;=")
++
++
++def human_quote_fragment(value: str | None) -> str | None:
++    return human_quote(value, "")
+diff --git a/yarl/_url.py b/yarl/_url.py
+index 92b6655..813c6fb 100644
+--- a/yarl/_url.py
++++ b/yarl/_url.py
+@@ -41,19 +41,24 @@ from ._query import (
+     get_str_query_from_sequence_iterable,
+ )
+ from ._quoters import (
+-    FRAGMENT_QUOTER,
+-    FRAGMENT_REQUOTER,
+-    PATH_QUOTER,
+-    PATH_REQUOTER,
+-    PATH_SAFE_UNQUOTER,
+-    PATH_UNQUOTER,
+-    QS_UNQUOTER,
+-    QUERY_QUOTER,
+-    QUERY_REQUOTER,
+-    QUOTER,
+-    REQUOTER,
+-    UNQUOTER,
+-    human_quote,
++    human_quote_fragment,
++    human_quote_path,
++    human_quote_query_part,
++    human_quote_userinfo,
++    quote_fragment,
++    quote_path,
++    quote_query,
++    quote_userinfo,
++    requote_fragment,
++    requote_path,
++    requote_query,
++    requote_userinfo,
++    unquote,
++    unquote_fragment,
++    unquote_path,
++    unquote_path_safe,
++    unquote_query,
++    unquote_userinfo,
+ )
+ 
+ # Avoid Pydantic import if not used (increases yarl's import time by 3-7x).
+@@ -212,22 +217,22 @@ def encode_url(url_str: str) -> "URL":
+             cache["raw_user"] = None
+             cache["raw_password"] = None
+         else:
+-            raw_user = REQUOTER(username) if username else username
+-            raw_password = REQUOTER(password) if password else password
++            raw_user = requote_userinfo(username) if username else username
++            raw_password = requote_userinfo(password) if password else password
+             netloc = make_netloc(raw_user, raw_password, host, port)
+             cache["raw_user"] = raw_user
+             cache["raw_password"] = raw_password
+ 
+     if path:
+-        path = PATH_REQUOTER(path)
++        path = requote_path(path)
+         if netloc and "." in path:
+             path = normalize_path(path)
+         elif not scheme and not netloc:
+             path = _encode_relative_scheme_colon(path)
+     if query:
+-        query = QUERY_REQUOTER(query)
++        query = requote_query(query)
+     if fragment:
+-        fragment = FRAGMENT_REQUOTER(fragment)
++        fragment = requote_fragment(fragment)
+ 
+     cache["scheme"] = scheme
+     cache["raw_path"] = "/" if not path and netloc else path
+@@ -489,7 +494,7 @@ class URL:
+             else:
+                 self._netloc = make_netloc(user, password, _host, port, True)
+ 
+-        path = PATH_QUOTER(path) if path else path
++        path = quote_path(path) if path else path
+         if path and self._netloc:
+             if "." in path:
+                 path = normalize_path(path)
+@@ -502,9 +507,9 @@ class URL:
+ 
+         self._path = path
+         if not query and query_string:
+-            query_string = QUERY_QUOTER(query_string)
++            query_string = quote_query(query_string)
+         self._query = query_string
+-        self._fragment = FRAGMENT_QUOTER(fragment) if fragment else fragment
++        self._fragment = quote_fragment(fragment) if fragment else fragment
+         self._cache = {}
+         return self
+ 
+@@ -743,7 +748,7 @@ class URL:
+         """
+         if (raw_user := self.raw_user) is None:
+             return None
+-        return UNQUOTER(raw_user)
++        return unquote_userinfo(raw_user)
+ 
+     @cached_property
+     def raw_password(self) -> str | None:
+@@ -764,7 +769,7 @@ class URL:
+         """
+         if (raw_password := self.raw_password) is None:
+             return None
+-        return UNQUOTER(raw_password)
++        return unquote_userinfo(raw_password)
+ 
+     @cached_property
+     def raw_host(self) -> str | None:
+@@ -900,7 +905,7 @@ class URL:
+         / for absolute URLs without path part.
+ 
+         """
+-        return PATH_UNQUOTER(self._path) if self._path else "/" if self._netloc else ""
++        return unquote_path(self._path) if self._path else "/" if self._netloc else ""
+ 
+     @cached_property
+     def path_safe(self) -> str:
+@@ -912,7 +917,7 @@ class URL:
+ 
+         """
+         if self._path:
+-            return PATH_SAFE_UNQUOTER(self._path)
++            return unquote_path_safe(self._path)
+         return "/" if self._netloc else ""
+ 
+     @cached_property
+@@ -946,7 +951,7 @@ class URL:
+         Empty string if query is missing.
+ 
+         """
+-        return QS_UNQUOTER(self._query) if self._query else ""
++        return unquote_query(self._query) if self._query else ""
+ 
+     @cached_property
+     def path_qs(self) -> str:
+@@ -976,7 +981,7 @@ class URL:
+         Empty string if fragment is missing.
+ 
+         """
+-        return UNQUOTER(self._fragment) if self._fragment else ""
++        return unquote_fragment(self._fragment) if self._fragment else ""
+ 
+     @cached_property
+     def raw_parts(self) -> tuple[str, ...]:
+@@ -999,7 +1004,7 @@ class URL:
+         ('/',) for absolute URLs if *path* is missing.
+ 
+         """
+-        return tuple(UNQUOTER(part) for part in self.raw_parts)
++        return tuple(unquote(part) for part in self.raw_parts)
+ 
+     @cached_property
+     def parent(self) -> "URL":
+@@ -1027,7 +1032,7 @@ class URL:
+     @cached_property
+     def name(self) -> str:
+         """The last part of parts."""
+-        return UNQUOTER(self.raw_name)
++        return unquote(self.raw_name)
+ 
+     @cached_property
+     def raw_suffix(self) -> str:
+@@ -1037,7 +1042,7 @@ class URL:
+ 
+     @cached_property
+     def suffix(self) -> str:
+-        return UNQUOTER(self.raw_suffix)
++        return unquote(self.raw_suffix)
+ 
+     @cached_property
+     def raw_suffixes(self) -> tuple[str, ...]:
+@@ -1049,7 +1054,7 @@ class URL:
+ 
+     @cached_property
+     def suffixes(self) -> tuple[str, ...]:
+-        return tuple(UNQUOTER(suffix) for suffix in self.raw_suffixes)
++        return tuple(unquote(suffix) for suffix in self.raw_suffixes)
+ 
+     def _make_child(self, paths: "Sequence[str]", encoded: bool = False) -> "URL":
+         """
+@@ -1069,7 +1074,7 @@ class URL:
+             # This cannot be done at the end because the existing
+             # path is already quoted and we do not want to double quote
+             # the existing path.
+-            path = path if encoded else PATH_QUOTER(path)
++            path = path if encoded else quote_path(path)
+             needs_normalize |= "." in path
+             segments = path.split("/")
+             segments.reverse()
+@@ -1125,7 +1130,7 @@ class URL:
+         if user is None:
+             password = None
+         elif isinstance(user, str):
+-            user = QUOTER(user)
++            user = quote_userinfo(user)
+             password = self.raw_password
+         else:
+             raise TypeError("Invalid user type")
+@@ -1147,7 +1152,7 @@ class URL:
+         if password is None:
+             pass
+         elif isinstance(password, str):
+-            password = QUOTER(password)
++            password = quote_userinfo(password)
+         else:
+             raise TypeError("Invalid password type")
+         if not (netloc := self._netloc):
+@@ -1207,7 +1212,7 @@ class URL:
+         """Return a new URL with path replaced."""
+         netloc = self._netloc
+         if not encoded:
+-            path = PATH_QUOTER(path)
++            path = quote_path(path)
+             if netloc:
+                 path = normalize_path(path) if "." in path else path
+         if path and path[0] != "/":
+@@ -1364,7 +1369,7 @@ class URL:
+         elif not isinstance(fragment, str):
+             raise TypeError("Invalid fragment type")
+         else:
+-            raw_fragment = FRAGMENT_QUOTER(fragment)
++            raw_fragment = quote_fragment(fragment)
+         if self._fragment == raw_fragment:
+             return self
+         return from_parts(
+@@ -1390,7 +1395,7 @@ class URL:
+             raise TypeError("Invalid name type")
+         if "/" in name:
+             raise ValueError("Slash in name is not allowed")
+-        name = PATH_QUOTER(name)
++        name = quote_path(name)
+         if name in (".", ".."):
+             raise ValueError(". and .. values are forbidden")
+         parts = list(self.raw_parts)
+@@ -1430,7 +1435,7 @@ class URL:
+         if not name:
+             raise ValueError(f"{self!r} has an empty name")
+         old_suffix = self.raw_suffix
+-        suffix = PATH_QUOTER(suffix)
++        suffix = quote_path(suffix)
+         name = name + suffix if not old_suffix else name[: -len(old_suffix)] + suffix
+         if name in (".", ".."):
+             raise ValueError(". and .. values are forbidden")
+@@ -1508,20 +1513,20 @@ class URL:
+ 
+     def human_repr(self) -> str:
+         """Return decoded human readable string for URL representation."""
+-        user = human_quote(self.user, "#/:?@[]\\")
+-        password = human_quote(self.password, "#/:?@[]\\")
++        user = human_quote_userinfo(self.user)
++        password = human_quote_userinfo(self.password)
+         if (host := self.host) and ":" in host:
+             host = f"[{host}]"
+-        path = human_quote(self.path, "#?")
++        path = human_quote_path(self.path)
+         if TYPE_CHECKING:
+             assert path is not None
+         if not self._scheme and not self._netloc:
+             path = _encode_relative_scheme_colon(path)
+         query_string = "&".join(
+-            "{}={}".format(human_quote(k, "#&+;="), human_quote(v, "#&+;="))
++            "{}={}".format(human_quote_query_part(k), human_quote_query_part(v))
+             for k, v in self.query.items()
+         )
+-        fragment = human_quote(self.fragment, "")
++        fragment = human_quote_fragment(self.fragment)
+         if TYPE_CHECKING:
+             assert fragment is not None
+         netloc = make_netloc(user, password, host, self.explicit_port)

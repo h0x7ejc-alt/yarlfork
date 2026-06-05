@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, SupportsInt, Union, cast
 
 from multidict import istr
 
-from ._quoters import QUERY_PART_QUOTER, QUERY_QUOTER
+from ._quoters import quote_query, quote_query_part
 
 SimpleQuery = Union[str, SupportsInt, float]
 QueryVariable = Union[SimpleQuery, Sequence[SimpleQuery]]
@@ -52,9 +52,8 @@ def get_str_query_from_sequence_iterable(
 
     The sequence of values must be a list or tuple.
     """
-    quoter = QUERY_PART_QUOTER
     pairs = [
-        f"{quoter(k)}={quoter(v if type(v) is str else query_var(v))}"
+        f"{quote_query_part(k)}={quote_query_part(v if type(v) is str else query_var(v))}"
         for k, val in items
         for v in (
             val if type(val) is not str and isinstance(val, (list, tuple)) else (val,)
@@ -73,11 +72,11 @@ def get_str_query_from_iterable(
     The values are not allowed to be sequences, only single values are
     allowed. For sequences, use `_get_str_query_from_sequence_iterable`.
     """
-    quoter = QUERY_PART_QUOTER
     # A listcomp is used since listcomps are inlined on CPython 3.12+ and
     # they are a bit faster than a generator expression.
     pairs = [
-        f"{quoter(k)}={quoter(v if type(v) is str else query_var(v))}" for k, v in items
+        f"{quote_query_part(k)}={quote_query_part(v if type(v) is str else query_var(v))}"
+        for k, v in items
     ]
     return "&".join(pairs)
 
@@ -107,7 +106,7 @@ def get_str_query(*args: Any, **kwargs: Any) -> str | None:
     if type(query) is dict:
         return get_str_query_from_sequence_iterable(query.items())
     if type(query) is str or isinstance(query, str):
-        return QUERY_QUOTER(query)
+        return quote_query(query)
     if isinstance(query, Mapping):
         return get_str_query_from_sequence_iterable(query.items())
     if isinstance(query, (bytes, bytearray, memoryview)):

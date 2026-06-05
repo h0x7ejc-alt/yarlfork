@@ -41,19 +41,24 @@ from ._query import (
     get_str_query_from_sequence_iterable,
 )
 from ._quoters import (
-    FRAGMENT_QUOTER,
-    FRAGMENT_REQUOTER,
-    PATH_QUOTER,
-    PATH_REQUOTER,
-    PATH_SAFE_UNQUOTER,
-    PATH_UNQUOTER,
-    QS_UNQUOTER,
-    QUERY_QUOTER,
-    QUERY_REQUOTER,
-    QUOTER,
-    REQUOTER,
-    UNQUOTER,
-    human_quote,
+    human_quote_fragment,
+    human_quote_path,
+    human_quote_query_part,
+    human_quote_userinfo,
+    quote_fragment,
+    quote_path,
+    quote_query,
+    quote_userinfo,
+    requote_fragment,
+    requote_path,
+    requote_query,
+    requote_userinfo,
+    unquote,
+    unquote_fragment,
+    unquote_path,
+    unquote_path_safe,
+    unquote_query,
+    unquote_userinfo,
 )
 
 # Avoid Pydantic import if not used (increases yarl's import time by 3-7x).
@@ -212,22 +217,22 @@ def encode_url(url_str: str) -> "URL":
             cache["raw_user"] = None
             cache["raw_password"] = None
         else:
-            raw_user = REQUOTER(username) if username else username
-            raw_password = REQUOTER(password) if password else password
+            raw_user = requote_userinfo(username) if username else username
+            raw_password = requote_userinfo(password) if password else password
             netloc = make_netloc(raw_user, raw_password, host, port)
             cache["raw_user"] = raw_user
             cache["raw_password"] = raw_password
 
     if path:
-        path = PATH_REQUOTER(path)
+        path = requote_path(path)
         if netloc and "." in path:
             path = normalize_path(path)
         elif not scheme and not netloc:
             path = _encode_relative_scheme_colon(path)
     if query:
-        query = QUERY_REQUOTER(query)
+        query = requote_query(query)
     if fragment:
-        fragment = FRAGMENT_REQUOTER(fragment)
+        fragment = requote_fragment(fragment)
 
     cache["scheme"] = scheme
     cache["raw_path"] = "/" if not path and netloc else path
@@ -489,7 +494,7 @@ class URL:
             else:
                 self._netloc = make_netloc(user, password, _host, port, True)
 
-        path = PATH_QUOTER(path) if path else path
+        path = quote_path(path) if path else path
         if path and self._netloc:
             if "." in path:
                 path = normalize_path(path)
@@ -502,9 +507,9 @@ class URL:
 
         self._path = path
         if not query and query_string:
-            query_string = QUERY_QUOTER(query_string)
+            query_string = quote_query(query_string)
         self._query = query_string
-        self._fragment = FRAGMENT_QUOTER(fragment) if fragment else fragment
+        self._fragment = quote_fragment(fragment) if fragment else fragment
         self._cache = {}
         return self
 
@@ -743,7 +748,7 @@ class URL:
         """
         if (raw_user := self.raw_user) is None:
             return None
-        return UNQUOTER(raw_user)
+        return unquote_userinfo(raw_user)
 
     @cached_property
     def raw_password(self) -> str | None:
@@ -764,7 +769,7 @@ class URL:
         """
         if (raw_password := self.raw_password) is None:
             return None
-        return UNQUOTER(raw_password)
+        return unquote_userinfo(raw_password)
 
     @cached_property
     def raw_host(self) -> str | None:
@@ -900,7 +905,7 @@ class URL:
         / for absolute URLs without path part.
 
         """
-        return PATH_UNQUOTER(self._path) if self._path else "/" if self._netloc else ""
+        return unquote_path(self._path) if self._path else "/" if self._netloc else ""
 
     @cached_property
     def path_safe(self) -> str:
@@ -912,7 +917,7 @@ class URL:
 
         """
         if self._path:
-            return PATH_SAFE_UNQUOTER(self._path)
+            return unquote_path_safe(self._path)
         return "/" if self._netloc else ""
 
     @cached_property
@@ -946,7 +951,7 @@ class URL:
         Empty string if query is missing.
 
         """
-        return QS_UNQUOTER(self._query) if self._query else ""
+        return unquote_query(self._query) if self._query else ""
 
     @cached_property
     def path_qs(self) -> str:
@@ -976,7 +981,7 @@ class URL:
         Empty string if fragment is missing.
 
         """
-        return UNQUOTER(self._fragment) if self._fragment else ""
+        return unquote_fragment(self._fragment) if self._fragment else ""
 
     @cached_property
     def raw_parts(self) -> tuple[str, ...]:
@@ -999,7 +1004,7 @@ class URL:
         ('/',) for absolute URLs if *path* is missing.
 
         """
-        return tuple(UNQUOTER(part) for part in self.raw_parts)
+        return tuple(unquote(part) for part in self.raw_parts)
 
     @cached_property
     def parent(self) -> "URL":
@@ -1027,7 +1032,7 @@ class URL:
     @cached_property
     def name(self) -> str:
         """The last part of parts."""
-        return UNQUOTER(self.raw_name)
+        return unquote(self.raw_name)
 
     @cached_property
     def raw_suffix(self) -> str:
@@ -1037,7 +1042,7 @@ class URL:
 
     @cached_property
     def suffix(self) -> str:
-        return UNQUOTER(self.raw_suffix)
+        return unquote(self.raw_suffix)
 
     @cached_property
     def raw_suffixes(self) -> tuple[str, ...]:
@@ -1049,7 +1054,7 @@ class URL:
 
     @cached_property
     def suffixes(self) -> tuple[str, ...]:
-        return tuple(UNQUOTER(suffix) for suffix in self.raw_suffixes)
+        return tuple(unquote(suffix) for suffix in self.raw_suffixes)
 
     def _make_child(self, paths: "Sequence[str]", encoded: bool = False) -> "URL":
         """
@@ -1069,7 +1074,7 @@ class URL:
             # This cannot be done at the end because the existing
             # path is already quoted and we do not want to double quote
             # the existing path.
-            path = path if encoded else PATH_QUOTER(path)
+            path = path if encoded else quote_path(path)
             needs_normalize |= "." in path
             segments = path.split("/")
             segments.reverse()
@@ -1125,7 +1130,7 @@ class URL:
         if user is None:
             password = None
         elif isinstance(user, str):
-            user = QUOTER(user)
+            user = quote_userinfo(user)
             password = self.raw_password
         else:
             raise TypeError("Invalid user type")
@@ -1147,7 +1152,7 @@ class URL:
         if password is None:
             pass
         elif isinstance(password, str):
-            password = QUOTER(password)
+            password = quote_userinfo(password)
         else:
             raise TypeError("Invalid password type")
         if not (netloc := self._netloc):
@@ -1207,7 +1212,7 @@ class URL:
         """Return a new URL with path replaced."""
         netloc = self._netloc
         if not encoded:
-            path = PATH_QUOTER(path)
+            path = quote_path(path)
             if netloc:
                 path = normalize_path(path) if "." in path else path
         if path and path[0] != "/":
@@ -1364,7 +1369,7 @@ class URL:
         elif not isinstance(fragment, str):
             raise TypeError("Invalid fragment type")
         else:
-            raw_fragment = FRAGMENT_QUOTER(fragment)
+            raw_fragment = quote_fragment(fragment)
         if self._fragment == raw_fragment:
             return self
         return from_parts(
@@ -1390,7 +1395,7 @@ class URL:
             raise TypeError("Invalid name type")
         if "/" in name:
             raise ValueError("Slash in name is not allowed")
-        name = PATH_QUOTER(name)
+        name = quote_path(name)
         if name in (".", ".."):
             raise ValueError(". and .. values are forbidden")
         parts = list(self.raw_parts)
@@ -1430,7 +1435,7 @@ class URL:
         if not name:
             raise ValueError(f"{self!r} has an empty name")
         old_suffix = self.raw_suffix
-        suffix = PATH_QUOTER(suffix)
+        suffix = quote_path(suffix)
         name = name + suffix if not old_suffix else name[: -len(old_suffix)] + suffix
         if name in (".", ".."):
             raise ValueError(". and .. values are forbidden")
@@ -1508,20 +1513,20 @@ class URL:
 
     def human_repr(self) -> str:
         """Return decoded human readable string for URL representation."""
-        user = human_quote(self.user, "#/:?@[]\\")
-        password = human_quote(self.password, "#/:?@[]\\")
+        user = human_quote_userinfo(self.user)
+        password = human_quote_userinfo(self.password)
         if (host := self.host) and ":" in host:
             host = f"[{host}]"
-        path = human_quote(self.path, "#?")
+        path = human_quote_path(self.path)
         if TYPE_CHECKING:
             assert path is not None
         if not self._scheme and not self._netloc:
             path = _encode_relative_scheme_colon(path)
         query_string = "&".join(
-            "{}={}".format(human_quote(k, "#&+;="), human_quote(v, "#&+;="))
+            "{}={}".format(human_quote_query_part(k), human_quote_query_part(v))
             for k, v in self.query.items()
         )
-        fragment = human_quote(self.fragment, "")
+        fragment = human_quote_fragment(self.fragment)
         if TYPE_CHECKING:
             assert fragment is not None
         netloc = make_netloc(user, password, host, self.explicit_port)

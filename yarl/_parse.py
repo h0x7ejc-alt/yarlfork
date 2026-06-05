@@ -5,7 +5,7 @@ import unicodedata
 from functools import lru_cache
 from urllib.parse import scheme_chars, uses_netloc
 
-from ._quoters import QUOTER, UNQUOTER_PLUS
+from ._quoters import quote_userinfo, unquote_query_part
 
 # Leading and trailing C0 control and space to be stripped per WHATWG spec.
 # == "".join([chr(i) for i in range(0, 0x20 + 1)])
@@ -209,12 +209,12 @@ def make_netloc(
         if not user:
             user = ""
         elif encode:
-            user = QUOTER(user)
+            user = quote_userinfo(user)
         if encode:
-            password = QUOTER(password)
+            password = quote_userinfo(password)
         user = f"{user}:{password}"
     elif user and encode:
-        user = QUOTER(user)
+        user = quote_userinfo(user)
     return f"{user}@{ret}" if user else ret
 
 
@@ -228,5 +228,5 @@ def query_to_pairs(query_string: str) -> list[tuple[str, str]]:
         return pairs
     for k_v in query_string.split("&"):
         k, _, v = k_v.partition("=")
-        pairs.append((UNQUOTER_PLUS(k), UNQUOTER_PLUS(v)))
+        pairs.append((unquote_query_part(k), unquote_query_part(v)))
     return pairs

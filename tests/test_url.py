@@ -2481,6 +2481,14 @@ def test_requoting() -> None:
     assert str(u) == "http://127.0.0.1/?next=http://example.com/"
 
 
+def test_requoting_preserves_existing_unsafe_percent_sequences() -> None:
+    u = URL("http://example.com/%2F?next=%2B#%23")
+    assert u.raw_path == "/%2F"
+    assert u.raw_query_string == "next=%2B"
+    assert u.raw_fragment == "%23"
+    assert str(u) == "http://example.com/%2F?next=%2B#%23"
+
+
 def test_join_query_string() -> None:
     """Test that query strings are correctly joined."""
     original = URL("http://127.0.0.1:62869")

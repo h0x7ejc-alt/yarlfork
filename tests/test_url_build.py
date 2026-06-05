@@ -95,6 +95,20 @@ def test_build_with_scheme_and_host() -> None:
     assert u == URL("http://127.0.0.1")
 
 
+def test_build_quotes_literal_percent_sequences() -> None:
+    u = URL.build(
+        scheme="http",
+        host="example.com",
+        path="/%2F",
+        query_string="next=%2B",
+        fragment="%23",
+    )
+    assert str(u) == "http://example.com/%252F?next=%252B#%2523"
+    assert u.raw_path == "/%252F"
+    assert u.raw_query_string == "next=%252B"
+    assert u.raw_fragment == "%2523"
+
+
 @pytest.mark.parametrize(
     ("port", "exc", "match"),
     [

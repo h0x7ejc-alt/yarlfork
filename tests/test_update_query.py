@@ -112,6 +112,13 @@ def test_with_query_str_non_ascii_and_spaces() -> None:
     assert url2.query_string == "a=1 2&b=знач"
 
 
+def test_with_query_str_quotes_literal_percent_sequences() -> None:
+    url = URL("http://example.com")
+    url2 = url.with_query("next=%2B")
+    assert url2.raw_query_string == "next=%252B"
+    assert url2.query_string == "next=%2B"
+
+
 def test_with_query_int() -> None:
     url = URL("http://example.com")
     assert url.with_query({"a": 1}) == URL("http://example.com/?a=1")
@@ -381,7 +388,12 @@ def test_update_query_with_non_ascii_as_str() -> None:
     assert url.update_query("𝕦=𝕦") == url
 
 
-# mod operator
+def test_update_query_str_reencodes_unsafe_query_value() -> None:
+    url = URL("http://example.com/?foo=bar")
+    url2 = url.update_query("next=%2B")
+    assert url2.raw_query_string == "foo=bar&next=%2B"
+    assert url2.query_string == "foo=bar&next=%2B"
+    assert url2.query["next"] == "+"
 
 
 def test_update_query_with_mod_operator() -> None:

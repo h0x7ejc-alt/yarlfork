@@ -21,6 +21,70 @@ QS_UNQUOTER = _Unquoter(qs=True)
 UNQUOTER_PLUS = _Unquoter(plus=True)  # to match urllib.parse.unquote_plus
 
 
+def quote_userinfo(value: str | None) -> str | None:
+    return QUOTER(value)
+
+
+def requote_userinfo(value: str | None) -> str | None:
+    return REQUOTER(value)
+
+
+def unquote(value: str | None) -> str | None:
+    return UNQUOTER(value)
+
+
+def unquote_userinfo(value: str | None) -> str | None:
+    return unquote(value)
+
+
+def quote_path(value: str | None) -> str | None:
+    return PATH_QUOTER(value)
+
+
+def requote_path(value: str | None) -> str | None:
+    return PATH_REQUOTER(value)
+
+
+def unquote_path(value: str | None) -> str | None:
+    return PATH_UNQUOTER(value)
+
+
+def unquote_path_safe(value: str | None) -> str | None:
+    return PATH_SAFE_UNQUOTER(value)
+
+
+def quote_query(value: str | None) -> str | None:
+    return QUERY_QUOTER(value)
+
+
+def requote_query(value: str | None) -> str | None:
+    return QUERY_REQUOTER(value)
+
+
+def quote_query_part(value: str | None) -> str | None:
+    return QUERY_PART_QUOTER(value)
+
+
+def unquote_query(value: str | None) -> str | None:
+    return QS_UNQUOTER(value)
+
+
+def unquote_query_part(value: str | None) -> str | None:
+    return UNQUOTER_PLUS(value)
+
+
+def quote_fragment(value: str | None) -> str | None:
+    return FRAGMENT_QUOTER(value)
+
+
+def requote_fragment(value: str | None) -> str | None:
+    return FRAGMENT_REQUOTER(value)
+
+
+def unquote_fragment(value: str | None) -> str | None:
+    return unquote(value)
+
+
 def human_quote(s: str | None, unsafe: str) -> str | None:
     if not s:
         return s
@@ -30,3 +94,19 @@ def human_quote(s: str | None, unsafe: str) -> str | None:
     if s.isprintable():
         return s
     return "".join(c if c.isprintable() else quote(c) for c in s)
+
+
+def human_quote_userinfo(value: str | None) -> str | None:
+    return human_quote(value, "#/:?@[]\\")
+
+
+def human_quote_path(value: str | None) -> str | None:
+    return human_quote(value, "#?")
+
+
+def human_quote_query_part(value: str | None) -> str | None:
+    return human_quote(value, "#&+;=")
+
+
+def human_quote_fragment(value: str | None) -> str | None:
+    return human_quote(value, "")
