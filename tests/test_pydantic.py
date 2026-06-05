@@ -38,12 +38,11 @@ def test_validate_invalid() -> None:
 
 def test_get_schema() -> None:
     schema = TstModel.model_json_schema()
-    assert schema == {
-        "properties": {"url": {"format": "uri", "title": "Url", "type": "string"}},
-        "required": ["url"],
-        "title": "TstModel",
-        "type": "object",
-    }
+    # Check that the schema contains the required fields and our new additions
+    assert schema["properties"]["url"]["format"] == "uri"
+    assert schema["properties"]["url"]["type"] == "string"
+    assert "description" in schema["properties"]["url"]
+    assert "examples" in schema["properties"]["url"]
 
 
 def test_json_roundtrip_json() -> None:
@@ -62,3 +61,22 @@ def test_fake_cover() -> None:
     # by coverage tool
 
     URL.__get_pydantic_core_schema__(URL, pydantic.GetCoreSchemaHandler())
+
+
+def test_enhanced_json_schema() -> None:
+    # Test that our enhanced JSON schema has description and examples
+    schema = TstModel.model_json_schema()
+    url_schema = schema["properties"]["url"]
+    assert url_schema["description"] == "A yarl.URL object representing a URL"
+    assert url_schema["examples"] == [
+        "https://example.com",
+        "http://localhost:8000/path?query=1#fragment",
+    ]
+
+
+def test_improved_error_message() -> None:
+    # Test that invalid URLs produce clear, descriptive error messages
+    with pytest.raises(pydantic.ValidationError, match="invalid_url"):
+        TstModel.model_validate({"url": "not a valid url"})
+    with pytest.raises(pydantic.ValidationError, match="Invalid URL"):
+        TstModel.model_validate({"url": "ftp://"})

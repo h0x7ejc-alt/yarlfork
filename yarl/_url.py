@@ -1535,8 +1535,12 @@ class URL:
             core_schema: "CoreSchema",
             handler: "GetJsonSchemaHandler",
         ) -> "JsonSchemaValue":
-            field_schema: dict[str, Any] = {}
-            field_schema.update(type="string", format="uri")
+            field_schema: dict[str, Any] = {
+                "type": "string",
+                "format": "uri",
+                "description": "A yarl.URL object representing a URL",
+                "examples": ["https://example.com", "http://localhost:8000/path?query=1#fragment"],
+            }
             return field_schema
 
         @classmethod
@@ -1548,12 +1552,22 @@ class URL:
             # Lazy import: pulling in pydantic_core at module load time
             # increases yarl's import cost 3-7x for users who don't use
             # pydantic. Keep this import function-scoped.
-            from pydantic_core import core_schema  # noqa: PLC0415
+            from pydantic_core import core_schema, PydanticCustomError  # noqa: PLC0415
+
+            def validate_url(value: Any) -> URL:
+                try:
+                    return URL(value)
+                except Exception as e:
+                    raise PydanticCustomError(
+                        "invalid_url",
+                        "Invalid URL: {error}",
+                        {"error": str(e)},
+                    ) from e
 
             from_str_schema = core_schema.chain_schema(
                 [
                     core_schema.str_schema(),
-                    core_schema.no_info_plain_validator_function(URL),
+                    core_schema.no_info_plain_validator_function(validate_url),
                 ]
             )
 
