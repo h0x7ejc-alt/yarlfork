@@ -1535,8 +1535,19 @@ class URL:
             core_schema: "CoreSchema",
             handler: "GetJsonSchemaHandler",
         ) -> "JsonSchemaValue":
-            field_schema: dict[str, Any] = {}
-            field_schema.update(type="string", format="uri")
+            field_schema: dict[str, Any] = {
+                "type": "string",
+                "format": "uri-reference",
+                "description": (
+                    "String URL parsed by yarl.URL. Accepts absolute URLs and "
+                    "relative references. Serialized values use yarl's canonical "
+                    "string form."
+                ),
+                "examples": [
+                    "https://example.com/path?query=1#frag",
+                    "/relative/path?query=1",
+                ],
+            }
             return field_schema
 
         @classmethod
@@ -1553,7 +1564,7 @@ class URL:
             from_str_schema = core_schema.chain_schema(
                 [
                     core_schema.str_schema(),
-                    core_schema.no_info_plain_validator_function(URL),
+                    core_schema.no_info_plain_validator_function(cls),
                 ]
             )
 

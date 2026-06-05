@@ -176,6 +176,11 @@ The :class:`~yarl.URL` could be used as a field type in pydantic_ models seamles
    class Model(BaseModel):
        url: URL
 
+The generated JSON schema describes the field as a string URL reference,
+which matches both absolute URLs and relative references accepted by
+:class:`~yarl.URL`. The schema also notes that serialized values use yarl's
+canonical string form.
+
 
 Source code
 -----------

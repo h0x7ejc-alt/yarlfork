@@ -1,0 +1,1 @@
+Improved the Pydantic v2 JSON schema for :class:`yarl.URL` so generated schemas describe URI references more accurately and clarify yarl's canonical string serialization.

@@ -30,6 +30,14 @@ def test_validate_valid() -> None:
     assert isinstance(m.url, URL)
 
 
+def test_validate_relative_reference() -> None:
+    url = URL("/relative/path?query=1")
+    dct = {"url": str(url)}
+    m = TstModel.model_validate(dct)
+    assert m == TstModel(url=url)
+    assert isinstance(m.url, URL)
+
+
 def test_validate_invalid() -> None:
     dct = {"url": 123}
     with pytest.raises(pydantic.ValidationError, match="url"):
@@ -39,11 +47,30 @@ def test_validate_invalid() -> None:
 def test_get_schema() -> None:
     schema = TstModel.model_json_schema()
     assert schema == {
-        "properties": {"url": {"format": "uri", "title": "Url", "type": "string"}},
+        "properties": {
+            "url": {
+                "description": (
+                    "String URL parsed by yarl.URL. Accepts absolute URLs and "
+                    "relative references. Serialized values use yarl's canonical "
+                    "string form."
+                ),
+                "examples": [
+                    "https://example.com/path?query=1#frag",
+                    "/relative/path?query=1",
+                ],
+                "format": "uri-reference",
+                "title": "Url",
+                "type": "string",
+            }
+        },
         "required": ["url"],
         "title": "TstModel",
         "type": "object",
     }
+
+
+def test_get_serialization_schema() -> None:
+    assert TstModel.model_json_schema(mode="serialization") == TstModel.model_json_schema()
 
 
 def test_json_roundtrip_json() -> None:
