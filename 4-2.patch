@@ -1,0 +1,27 @@
+diff --git a/run_tests.py b/run_tests.py
+new file mode 100644
+index 0000000..bf2d0c2
+--- /dev/null
++++ b/run_tests.py
+@@ -0,0 +1,3 @@
++import pytest
++import sys
++sys.exit(pytest.main(["tests/test_update_query.py", "tests/test_url_query.py", "tests/test_url.py", "tests/test_url_build.py"]))
+diff --git a/yarl/_url.py b/yarl/_url.py
+index 92b6655..8d4c889 100644
+--- a/yarl/_url.py
++++ b/yarl/_url.py
+@@ -1311,7 +1311,12 @@ class URL:
+             query = get_str_query_from_sequence_iterable(qm.items())
+         elif isinstance(in_query, str):
+             qstr: MultiDict[str] = MultiDict(self._parsed_query)
+-            qstr.update(query_to_pairs(in_query))
++            pairs: list[tuple[str, str]] = []
++            if in_query:
++                for k_v in in_query.split("&"):
++                    k, _, v = k_v.partition("=")
++                    pairs.append((k.replace("+", " "), v.replace("+", " ")))
++            qstr.update(pairs)
+             query = get_str_query_from_iterable(qstr.items())
+         elif isinstance(in_query, (bytes, bytearray, memoryview)):
+             msg = "Invalid query type: bytes, bytearray and memoryview are forbidden"
