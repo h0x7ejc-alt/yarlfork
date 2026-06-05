@@ -1,0 +1,2 @@
+Added ``URL.without_user()`` to remove both user and password from a URL.
+-- by :user:`github-handle`

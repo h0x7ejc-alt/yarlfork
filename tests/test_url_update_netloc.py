@@ -95,6 +95,49 @@ def test_with_user_None_when_password_present() -> None:
     assert str(url.with_user(None)) == "http://example.com"
 
 
+def test_without_user() -> None:
+    url = URL("http://john@example.com")
+    url2 = url.without_user()
+    assert str(url2) == "http://example.com"
+    assert url2.user is None
+
+
+def test_without_user_and_password() -> None:
+    url = URL("http://john:pass@example.com")
+    url2 = url.without_user()
+    assert str(url2) == "http://example.com"
+    assert url2.user is None
+    assert url2.password is None
+
+
+def test_without_user_ipv6() -> None:
+    url = URL("http://john:pass@[::1]:8080/")
+    url2 = url.without_user()
+    assert str(url2) == "http://[::1]:8080/"
+    assert url2.user is None
+    assert url2.password is None
+
+
+def test_without_user_already_none() -> None:
+    url = URL("http://example.com")
+    url2 = url.without_user()
+    assert str(url2) == "http://example.com"
+    assert url2 is url
+
+
+def test_without_user_relative() -> None:
+    url = URL("path/to")
+    url2 = url.without_user()
+    assert str(url2) == "path/to"
+    assert url2 is url
+
+
+def test_without_user_encoded() -> None:
+    url = URL("http://%D0%B1:%D0%B2@example.com/path?q=1#frag")
+    url2 = url.without_user()
+    assert str(url2) == "http://example.com/path?q=1#frag"
+
+
 def test_with_password() -> None:
     url = URL("http://john@example.com")
     assert str(url.with_password("pass")) == "http://john:pass@example.com"

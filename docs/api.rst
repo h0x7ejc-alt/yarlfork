@@ -612,6 +612,15 @@ section generates a new :class:`URL` instance.
       >>> URL('http://user:pass@example.com').with_user(None)
       URL('http://example.com')
 
+.. method:: URL.without_user()
+
+   Return a new URL with *user* and *password* removed.
+
+   .. doctest::
+
+      >>> URL('http://user:pass@example.com').without_user()
+      URL('http://example.com')
+
 .. method:: URL.with_password(password)
 
    Return a new URL with *password* replaced, auto-encode *password* if needed.
