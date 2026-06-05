@@ -1,0 +1,209 @@
+diff --git a/tests/test_quoters.py b/tests/test_quoters.py
+new file mode 100644
+index 0000000..33fdb49
+--- /dev/null
++++ b/tests/test_quoters.py
+@@ -0,0 +1,86 @@
++from collections.abc import Callable
++from functools import partial
++
++import pytest
++
++from yarl._quoters import (
++    FRAGMENT_QUOTER,
++    FRAGMENT_REQUOTER,
++    PATH_QUOTER,
++    PATH_REQUOTER,
++    PATH_SAFE_UNQUOTER,
++    PATH_UNQUOTER,
++    QS_UNQUOTER,
++    QUERY_PART_QUOTER,
++    QUERY_QUOTER,
++    QUERY_REQUOTER,
++    QUOTER,
++    REQUOTER,
++    UNQUOTER,
++    UNQUOTER_PLUS,
++)
++from yarl._quoting import _Quoter, _Unquoter
++
++
++@pytest.mark.parametrize(
++    ("quoter", "factory", "value"),
++    [
++        (QUOTER, partial(_Quoter, requote=False), "a b/c"),
++        (REQUOTER, partial(_Quoter), "a b/c"),
++        (
++            PATH_QUOTER,
++            partial(_Quoter, safe="@:", protected="/+", requote=False),
++            "a/b+c:d@",
++        ),
++        (
++            PATH_REQUOTER,
++            partial(_Quoter, safe="@:", protected="/+"),
++            "a/b+c:d@",
++        ),
++        (
++            QUERY_QUOTER,
++            partial(_Quoter, safe="?/:@", protected="=+&;", qs=True, requote=False),
++            "a=1&b=2+3/c?d:e@f;",
++        ),
++        (
++            QUERY_REQUOTER,
++            partial(_Quoter, safe="?/:@", protected="=+&;", qs=True),
++            "a=1&b=2+3/c?d:e@f;",
++        ),
++        (
++            QUERY_PART_QUOTER,
++            partial(_Quoter, safe="?/:@", qs=True, requote=False),
++            "a=1&b=2+3",
++        ),
++        (FRAGMENT_QUOTER, partial(_Quoter, safe="?/:@", requote=False), "a/b?c:d@e"),
++        (FRAGMENT_REQUOTER, partial(_Quoter, safe="?/:@"), "a/b?c:d@e"),
++    ],
++)
++def test_module_quoters_match_explicit_configs(
++    quoter: _Quoter,
++    factory: Callable[[], _Quoter],
++    value: str,
++) -> None:
++    assert quoter(value) == factory()(value)
++
++
++@pytest.mark.parametrize(
++    ("unquoter", "factory", "value"),
++    [
++        (UNQUOTER, partial(_Unquoter), "a%20b%2Fc"),
++        (PATH_UNQUOTER, partial(_Unquoter, unsafe="+"), "/a+b%2Bc"),
++        (
++            PATH_SAFE_UNQUOTER,
++            partial(_Unquoter, ignore="/%", unsafe="+"),
++            "/a%2Fb%2520",
++        ),
++        (QS_UNQUOTER, partial(_Unquoter, qs=True), "a+b%2Bc%26d"),
++        (UNQUOTER_PLUS, partial(_Unquoter, plus=True), "a+b"),
++    ],
++)
++def test_module_unquoters_match_explicit_configs(
++    unquoter: _Unquoter,
++    factory: Callable[[], _Unquoter],
++    value: str,
++) -> None:
++    assert unquoter(value) == factory()(value)
+diff --git a/yarl/_quoters.py b/yarl/_quoters.py
+index 78f77ca..fd07956 100644
+--- a/yarl/_quoters.py
++++ b/yarl/_quoters.py
+@@ -1,24 +1,97 @@
+ """Quoting and unquoting utilities for URL parts."""
+ 
++from typing import TypedDict as _TypedDict
+ from urllib.parse import quote
+ 
+ from ._quoting import _Quoter, _Unquoter
+ 
+-QUOTER = _Quoter(requote=False)
+-REQUOTER = _Quoter()
+-PATH_QUOTER = _Quoter(safe="@:", protected="/+", requote=False)
+-PATH_REQUOTER = _Quoter(safe="@:", protected="/+")
+-QUERY_QUOTER = _Quoter(safe="?/:@", protected="=+&;", qs=True, requote=False)
+-QUERY_REQUOTER = _Quoter(safe="?/:@", protected="=+&;", qs=True)
+-QUERY_PART_QUOTER = _Quoter(safe="?/:@", qs=True, requote=False)
+-FRAGMENT_QUOTER = _Quoter(safe="?/:@", requote=False)
+-FRAGMENT_REQUOTER = _Quoter(safe="?/:@")
+-
+-UNQUOTER = _Unquoter()
+-PATH_UNQUOTER = _Unquoter(unsafe="+")
+-PATH_SAFE_UNQUOTER = _Unquoter(ignore="/%", unsafe="+")
+-QS_UNQUOTER = _Unquoter(qs=True)
+-UNQUOTER_PLUS = _Unquoter(plus=True)  # to match urllib.parse.unquote_plus
++
++class _QuoterKwargs(_TypedDict, total=False):
++    safe: str
++    protected: str
++    qs: bool
++    requote: bool
++
++
++class _UnquoterKwargs(_TypedDict, total=False):
++    ignore: str
++    unsafe: str
++    qs: bool
++    plus: bool
++
++
++_PATH_SAFE = "@:"
++_PATH_PROTECTED = "/+"
++_QUERY_SAFE = "?/:@"
++_QUERY_PROTECTED = "=+&;"
++_PATH_UNSAFE = "+"
++_PATH_SAFE_IGNORE = "/%"
++
++
++def _make_quoters(definitions: dict[str, _QuoterKwargs]) -> dict[str, _Quoter]:
++    return {name: _Quoter(**kwargs) for name, kwargs in definitions.items()}
++
++
++def _make_unquoters(definitions: dict[str, _UnquoterKwargs]) -> dict[str, _Unquoter]:
++    return {name: _Unquoter(**kwargs) for name, kwargs in definitions.items()}
++
++
++_QUOTERS = _make_quoters(
++    {
++        "QUOTER": {"requote": False},
++        "REQUOTER": {},
++        "PATH_QUOTER": {
++            "safe": _PATH_SAFE,
++            "protected": _PATH_PROTECTED,
++            "requote": False,
++        },
++        "PATH_REQUOTER": {"safe": _PATH_SAFE, "protected": _PATH_PROTECTED},
++        "QUERY_QUOTER": {
++            "safe": _QUERY_SAFE,
++            "protected": _QUERY_PROTECTED,
++            "qs": True,
++            "requote": False,
++        },
++        "QUERY_REQUOTER": {
++            "safe": _QUERY_SAFE,
++            "protected": _QUERY_PROTECTED,
++            "qs": True,
++        },
++        "QUERY_PART_QUOTER": {
++            "safe": _QUERY_SAFE,
++            "qs": True,
++            "requote": False,
++        },
++        "FRAGMENT_QUOTER": {"safe": _QUERY_SAFE, "requote": False},
++        "FRAGMENT_REQUOTER": {"safe": _QUERY_SAFE},
++    }
++)
++
++_UNQUOTERS = _make_unquoters(
++    {
++        "UNQUOTER": {},
++        "PATH_UNQUOTER": {"unsafe": _PATH_UNSAFE},
++        "PATH_SAFE_UNQUOTER": {"ignore": _PATH_SAFE_IGNORE, "unsafe": _PATH_UNSAFE},
++        "QS_UNQUOTER": {"qs": True},
++        "UNQUOTER_PLUS": {"plus": True},
++    }
++)
++
++QUOTER = _QUOTERS["QUOTER"]
++REQUOTER = _QUOTERS["REQUOTER"]
++PATH_QUOTER = _QUOTERS["PATH_QUOTER"]
++PATH_REQUOTER = _QUOTERS["PATH_REQUOTER"]
++QUERY_QUOTER = _QUOTERS["QUERY_QUOTER"]
++QUERY_REQUOTER = _QUOTERS["QUERY_REQUOTER"]
++QUERY_PART_QUOTER = _QUOTERS["QUERY_PART_QUOTER"]
++FRAGMENT_QUOTER = _QUOTERS["FRAGMENT_QUOTER"]
++FRAGMENT_REQUOTER = _QUOTERS["FRAGMENT_REQUOTER"]
++
++UNQUOTER = _UNQUOTERS["UNQUOTER"]
++PATH_UNQUOTER = _UNQUOTERS["PATH_UNQUOTER"]
++PATH_SAFE_UNQUOTER = _UNQUOTERS["PATH_SAFE_UNQUOTER"]
++QS_UNQUOTER = _UNQUOTERS["QS_UNQUOTER"]
++UNQUOTER_PLUS = _UNQUOTERS["UNQUOTER_PLUS"]
+ 
+ 
+ def human_quote(s: str | None, unsafe: str) -> str | None:
