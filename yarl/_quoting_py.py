@@ -126,11 +126,13 @@ class _Unquoter:
         unsafe: str = "",
         qs: bool = False,
         plus: bool = False,
+        human: bool = False,
     ) -> None:
         self._ignore = ignore
         self._unsafe = unsafe
         self._qs = qs
         self._plus = plus  # to match urllib.parse.unquote_plus
+        self._human = human
         self._quoter = _Quoter()
         self._qs_quoter = _Quoter(qs=True)
 
@@ -174,7 +176,7 @@ class _Unquoter:
                         if to_add is None:  # pragma: no cover
                             raise RuntimeError("Cannot quote None")
                         ret.append(to_add)
-                    elif unquoted in self._unsafe or unquoted in self._ignore:
+                    elif unquoted in self._unsafe or unquoted in self._ignore or (self._human and not unquoted.isprintable()):
                         to_add = self._quoter(unquoted)
                         if to_add is None:  # pragma: no cover
                             raise RuntimeError("Cannot quote None")
@@ -189,17 +191,16 @@ class _Unquoter:
                 decoder.reset()
 
             if ch == "+":
-                if (not self._qs and not self._plus) or ch in self._unsafe:
-                    ret.append("+")
-                else:
+                if self._qs or self._plus:
                     ret.append(" ")
-                continue
+                    continue
+                # If not qs/plus, fall through to check unsafe
 
-            if ch in self._unsafe:
-                ret.append("%")
-                h = hex(ord(ch)).upper()[2:]
-                for ch in h:
-                    ret.append(ch)
+            if ch in self._unsafe or (self._human and not ch.isprintable()):
+                to_add = self._quoter(ch)
+                if to_add is None:  # pragma: no cover
+                    raise RuntimeError("Cannot quote None")
+                ret.append(to_add)
                 continue
 
             ret.append(ch)

@@ -1,0 +1,2 @@
+Refactored internal quoting boundaries: `URL.build()` and `URL.with_query()` now correctly use `requote=True` when taking string query parameters to prevent double-encoding of `%` characters. `human_repr()` now uses the fast C-extension `_Unquoter` with a new `human=True` flag instead of the manual pure-Python `human_quote` function, improving performance and fixing a bug where literal `+` in the path was incorrectly encoded to `%2B`.
+-- by :user:`trae-agent`.

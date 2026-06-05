@@ -43,6 +43,10 @@ from ._query import (
 from ._quoters import (
     FRAGMENT_QUOTER,
     FRAGMENT_REQUOTER,
+    HUMAN_FRAGMENT_UNQUOTER,
+    HUMAN_PATH_UNQUOTER,
+    HUMAN_QUERY_UNQUOTER,
+    HUMAN_USER_UNQUOTER,
     PATH_QUOTER,
     PATH_REQUOTER,
     PATH_SAFE_UNQUOTER,
@@ -53,7 +57,6 @@ from ._quoters import (
     QUOTER,
     REQUOTER,
     UNQUOTER,
-    human_quote,
 )
 
 # Avoid Pydantic import if not used (increases yarl's import time by 3-7x).
@@ -502,7 +505,7 @@ class URL:
 
         self._path = path
         if not query and query_string:
-            query_string = QUERY_QUOTER(query_string)
+            query_string = QUERY_REQUOTER(query_string)
         self._query = query_string
         self._fragment = FRAGMENT_QUOTER(fragment) if fragment else fragment
         self._cache = {}
@@ -1508,20 +1511,20 @@ class URL:
 
     def human_repr(self) -> str:
         """Return decoded human readable string for URL representation."""
-        user = human_quote(self.user, "#/:?@[]\\")
-        password = human_quote(self.password, "#/:?@[]\\")
+        user = HUMAN_USER_UNQUOTER(self.raw_user)
+        password = HUMAN_USER_UNQUOTER(self.raw_password)
         if (host := self.host) and ":" in host:
             host = f"[{host}]"
-        path = human_quote(self.path, "#?")
+        path = HUMAN_PATH_UNQUOTER(self.raw_path)
         if TYPE_CHECKING:
             assert path is not None
         if not self._scheme and not self._netloc:
             path = _encode_relative_scheme_colon(path)
         query_string = "&".join(
-            "{}={}".format(human_quote(k, "#&+;="), human_quote(v, "#&+;="))
+            "{}={}".format(HUMAN_QUERY_UNQUOTER(k), HUMAN_QUERY_UNQUOTER(v))
             for k, v in self.query.items()
         )
-        fragment = human_quote(self.fragment, "")
+        fragment = HUMAN_FRAGMENT_UNQUOTER(self.raw_fragment)
         if TYPE_CHECKING:
             assert fragment is not None
         netloc = make_netloc(user, password, host, self.explicit_port)

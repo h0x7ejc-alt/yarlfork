@@ -318,10 +318,11 @@ cdef class _Unquoter:
     cdef const unsigned char * _unsafe_bytes_char
     cdef bint _qs
     cdef bint _plus  # to match urllib.parse.unquote_plus
+    cdef bint _human
     cdef _Quoter _quoter
     cdef _Quoter _qs_quoter
 
-    def __init__(self, *, ignore="", unsafe="", qs=False, plus=False):
+    def __init__(self, *, ignore="", unsafe="", qs=False, plus=False, human=False):
         self._ignore = ignore
         self._has_ignore = bool(self._ignore)
         self._unsafe = unsafe
@@ -331,6 +332,7 @@ cdef class _Unquoter:
         self._unsafe_bytes_char = self._unsafe_bytes
         self._qs = qs
         self._plus = plus
+        self._human = human
         self._quoter = _Quoter()
         self._qs_quoter = _Quoter(qs=True)
 
@@ -401,7 +403,8 @@ cdef class _Unquoter:
                         ret.append(self._qs_quoter(unquoted))
                     elif (
                         (self._unsafe_bytes_len and unquoted in self._unsafe) or
-                        (self._has_ignore and unquoted in self._ignore)
+                        (self._has_ignore and unquoted in self._ignore) or
+                        (self._human and not unquoted.isprintable())
                     ):
                         ret.append(self._quoter(unquoted))
                     else:
@@ -416,22 +419,15 @@ cdef class _Unquoter:
                 buflen = 0
 
             if ch == '+':
-                if (
-                    (not self._qs and not self._plus) or
-                    (self._unsafe_bytes_len and self._is_char_unsafe(ch))
-                ):
-                    ret.append('+')
-                else:
+                if self._qs or self._plus:
                     changed = 1
                     ret.append(' ')
-                continue
+                    continue
+                # If not qs/plus, fall through to check unsafe
 
-            if self._unsafe_bytes_len and self._is_char_unsafe(ch):
+            if (self._unsafe_bytes_len and self._is_char_unsafe(ch)) or (self._human and not chr(ch).isprintable()):
                 changed = 1
-                ret.append('%')
-                h = hex(ord(ch)).upper()[2:]
-                for ch in h:
-                    ret.append(ch)
+                ret.append(self._quoter(chr(ch)))
                 continue
 
             ret.append(ch)

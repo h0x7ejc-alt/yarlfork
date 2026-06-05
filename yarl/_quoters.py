@@ -20,13 +20,7 @@ PATH_SAFE_UNQUOTER = _Unquoter(ignore="/%", unsafe="+")
 QS_UNQUOTER = _Unquoter(qs=True)
 UNQUOTER_PLUS = _Unquoter(plus=True)  # to match urllib.parse.unquote_plus
 
-
-def human_quote(s: str | None, unsafe: str) -> str | None:
-    if not s:
-        return s
-    for c in "%" + unsafe:
-        if c in s:
-            s = s.replace(c, f"%{ord(c):02X}")
-    if s.isprintable():
-        return s
-    return "".join(c if c.isprintable() else quote(c) for c in s)
+HUMAN_PATH_UNQUOTER = _Unquoter(unsafe="%#?", human=True)
+HUMAN_QUERY_UNQUOTER = _Unquoter(unsafe="%#&+;=", human=True)
+HUMAN_USER_UNQUOTER = _Unquoter(unsafe="%#/:?@[]\\", human=True)
+HUMAN_FRAGMENT_UNQUOTER = _Unquoter(unsafe="%", human=True)

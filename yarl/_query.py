@@ -107,7 +107,7 @@ def get_str_query(*args: Any, **kwargs: Any) -> str | None:
     if type(query) is dict:
         return get_str_query_from_sequence_iterable(query.items())
     if type(query) is str or isinstance(query, str):
-        return QUERY_QUOTER(query)
+        return QUERY_REQUOTER(query)
     if isinstance(query, Mapping):
         return get_str_query_from_sequence_iterable(query.items())
     if isinstance(query, (bytes, bytearray, memoryview)):
