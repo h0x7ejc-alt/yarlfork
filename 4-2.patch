@@ -1,0 +1,218 @@
+diff --git a/CHANGES/1800.misc.rst b/CHANGES/1800.misc.rst
+new file mode 100644
+index 0000000..7cdf88b
+--- /dev/null
++++ b/CHANGES/1800.misc.rst
+@@ -0,0 +1,2 @@
++Refactored internal quoting boundaries: `URL.build()` and `URL.with_query()` now correctly use `requote=True` when taking string query parameters to prevent double-encoding of `%` characters. `human_repr()` now uses the fast C-extension `_Unquoter` with a new `human=True` flag instead of the manual pure-Python `human_quote` function, improving performance and fixing a bug where literal `+` in the path was incorrectly encoded to `%2B`.
++-- by :user:`trae-agent`.
+\ No newline at end of file
+diff --git a/yarl/_query.py b/yarl/_query.py
+index 3f5ca22..8f3a231 100644
+--- a/yarl/_query.py
++++ b/yarl/_query.py
+@@ -107,7 +107,7 @@ def get_str_query(*args: Any, **kwargs: Any) -> str | None:
+     if type(query) is dict:
+         return get_str_query_from_sequence_iterable(query.items())
+     if type(query) is str or isinstance(query, str):
+-        return QUERY_QUOTER(query)
++        return QUERY_REQUOTER(query)
+     if isinstance(query, Mapping):
+         return get_str_query_from_sequence_iterable(query.items())
+     if isinstance(query, (bytes, bytearray, memoryview)):
+diff --git a/yarl/_quoters.py b/yarl/_quoters.py
+index 78f77ca..5a6b6f6 100644
+--- a/yarl/_quoters.py
++++ b/yarl/_quoters.py
+@@ -20,13 +20,7 @@ PATH_SAFE_UNQUOTER = _Unquoter(ignore="/%", unsafe="+")
+ QS_UNQUOTER = _Unquoter(qs=True)
+ UNQUOTER_PLUS = _Unquoter(plus=True)  # to match urllib.parse.unquote_plus
+ 
+-
+-def human_quote(s: str | None, unsafe: str) -> str | None:
+-    if not s:
+-        return s
+-    for c in "%" + unsafe:
+-        if c in s:
+-            s = s.replace(c, f"%{ord(c):02X}")
+-    if s.isprintable():
+-        return s
+-    return "".join(c if c.isprintable() else quote(c) for c in s)
++HUMAN_PATH_UNQUOTER = _Unquoter(unsafe="%#?", human=True)
++HUMAN_QUERY_UNQUOTER = _Unquoter(unsafe="%#&+;=", human=True)
++HUMAN_USER_UNQUOTER = _Unquoter(unsafe="%#/:?@[]\\", human=True)
++HUMAN_FRAGMENT_UNQUOTER = _Unquoter(unsafe="%", human=True)
+diff --git a/yarl/_quoting_c.pyx b/yarl/_quoting_c.pyx
+index dacf6b0..e3e3507 100644
+--- a/yarl/_quoting_c.pyx
++++ b/yarl/_quoting_c.pyx
+@@ -318,10 +318,11 @@ cdef class _Unquoter:
+     cdef const unsigned char * _unsafe_bytes_char
+     cdef bint _qs
+     cdef bint _plus  # to match urllib.parse.unquote_plus
++    cdef bint _human
+     cdef _Quoter _quoter
+     cdef _Quoter _qs_quoter
+ 
+-    def __init__(self, *, ignore="", unsafe="", qs=False, plus=False):
++    def __init__(self, *, ignore="", unsafe="", qs=False, plus=False, human=False):
+         self._ignore = ignore
+         self._has_ignore = bool(self._ignore)
+         self._unsafe = unsafe
+@@ -331,6 +332,7 @@ cdef class _Unquoter:
+         self._unsafe_bytes_char = self._unsafe_bytes
+         self._qs = qs
+         self._plus = plus
++        self._human = human
+         self._quoter = _Quoter()
+         self._qs_quoter = _Quoter(qs=True)
+ 
+@@ -401,7 +403,8 @@ cdef class _Unquoter:
+                         ret.append(self._qs_quoter(unquoted))
+                     elif (
+                         (self._unsafe_bytes_len and unquoted in self._unsafe) or
+-                        (self._has_ignore and unquoted in self._ignore)
++                        (self._has_ignore and unquoted in self._ignore) or
++                        (self._human and not unquoted.isprintable())
+                     ):
+                         ret.append(self._quoter(unquoted))
+                     else:
+@@ -416,22 +419,15 @@ cdef class _Unquoter:
+                 buflen = 0
+ 
+             if ch == '+':
+-                if (
+-                    (not self._qs and not self._plus) or
+-                    (self._unsafe_bytes_len and self._is_char_unsafe(ch))
+-                ):
+-                    ret.append('+')
+-                else:
++                if self._qs or self._plus:
+                     changed = 1
+                     ret.append(' ')
+-                continue
++                    continue
++                # If not qs/plus, fall through to check unsafe
+ 
+-            if self._unsafe_bytes_len and self._is_char_unsafe(ch):
++            if (self._unsafe_bytes_len and self._is_char_unsafe(ch)) or (self._human and not chr(ch).isprintable()):
+                 changed = 1
+-                ret.append('%')
+-                h = hex(ord(ch)).upper()[2:]
+-                for ch in h:
+-                    ret.append(ch)
++                ret.append(self._quoter(chr(ch)))
+                 continue
+ 
+             ret.append(ch)
+diff --git a/yarl/_quoting_py.py b/yarl/_quoting_py.py
+index 98197aa..ee60211 100644
+--- a/yarl/_quoting_py.py
++++ b/yarl/_quoting_py.py
+@@ -126,11 +126,13 @@ class _Unquoter:
+         unsafe: str = "",
+         qs: bool = False,
+         plus: bool = False,
++        human: bool = False,
+     ) -> None:
+         self._ignore = ignore
+         self._unsafe = unsafe
+         self._qs = qs
+         self._plus = plus  # to match urllib.parse.unquote_plus
++        self._human = human
+         self._quoter = _Quoter()
+         self._qs_quoter = _Quoter(qs=True)
+ 
+@@ -174,7 +176,7 @@ class _Unquoter:
+                         if to_add is None:  # pragma: no cover
+                             raise RuntimeError("Cannot quote None")
+                         ret.append(to_add)
+-                    elif unquoted in self._unsafe or unquoted in self._ignore:
++                    elif unquoted in self._unsafe or unquoted in self._ignore or (self._human and not unquoted.isprintable()):
+                         to_add = self._quoter(unquoted)
+                         if to_add is None:  # pragma: no cover
+                             raise RuntimeError("Cannot quote None")
+@@ -189,17 +191,16 @@ class _Unquoter:
+                 decoder.reset()
+ 
+             if ch == "+":
+-                if (not self._qs and not self._plus) or ch in self._unsafe:
+-                    ret.append("+")
+-                else:
++                if self._qs or self._plus:
+                     ret.append(" ")
+-                continue
++                    continue
++                # If not qs/plus, fall through to check unsafe
+ 
+-            if ch in self._unsafe:
+-                ret.append("%")
+-                h = hex(ord(ch)).upper()[2:]
+-                for ch in h:
+-                    ret.append(ch)
++            if ch in self._unsafe or (self._human and not ch.isprintable()):
++                to_add = self._quoter(ch)
++                if to_add is None:  # pragma: no cover
++                    raise RuntimeError("Cannot quote None")
++                ret.append(to_add)
+                 continue
+ 
+             ret.append(ch)
+diff --git a/yarl/_url.py b/yarl/_url.py
+index 92b6655..2ce9edb 100644
+--- a/yarl/_url.py
++++ b/yarl/_url.py
+@@ -43,6 +43,10 @@ from ._query import (
+ from ._quoters import (
+     FRAGMENT_QUOTER,
+     FRAGMENT_REQUOTER,
++    HUMAN_FRAGMENT_UNQUOTER,
++    HUMAN_PATH_UNQUOTER,
++    HUMAN_QUERY_UNQUOTER,
++    HUMAN_USER_UNQUOTER,
+     PATH_QUOTER,
+     PATH_REQUOTER,
+     PATH_SAFE_UNQUOTER,
+@@ -53,7 +57,6 @@ from ._quoters import (
+     QUOTER,
+     REQUOTER,
+     UNQUOTER,
+-    human_quote,
+ )
+ 
+ # Avoid Pydantic import if not used (increases yarl's import time by 3-7x).
+@@ -502,7 +505,7 @@ class URL:
+ 
+         self._path = path
+         if not query and query_string:
+-            query_string = QUERY_QUOTER(query_string)
++            query_string = QUERY_REQUOTER(query_string)
+         self._query = query_string
+         self._fragment = FRAGMENT_QUOTER(fragment) if fragment else fragment
+         self._cache = {}
+@@ -1508,20 +1511,20 @@ class URL:
+ 
+     def human_repr(self) -> str:
+         """Return decoded human readable string for URL representation."""
+-        user = human_quote(self.user, "#/:?@[]\\")
+-        password = human_quote(self.password, "#/:?@[]\\")
++        user = HUMAN_USER_UNQUOTER(self.raw_user)
++        password = HUMAN_USER_UNQUOTER(self.raw_password)
+         if (host := self.host) and ":" in host:
+             host = f"[{host}]"
+-        path = human_quote(self.path, "#?")
++        path = HUMAN_PATH_UNQUOTER(self.raw_path)
+         if TYPE_CHECKING:
+             assert path is not None
+         if not self._scheme and not self._netloc:
+             path = _encode_relative_scheme_colon(path)
+         query_string = "&".join(
+-            "{}={}".format(human_quote(k, "#&+;="), human_quote(v, "#&+;="))
++            "{}={}".format(HUMAN_QUERY_UNQUOTER(k), HUMAN_QUERY_UNQUOTER(v))
+             for k, v in self.query.items()
+         )
+-        fragment = human_quote(self.fragment, "")
++        fragment = HUMAN_FRAGMENT_UNQUOTER(self.raw_fragment)
+         if TYPE_CHECKING:
+             assert fragment is not None
+         netloc = make_netloc(user, password, host, self.explicit_port)
