@@ -154,6 +154,40 @@ def test_with_password_and_empty_user() -> None:
     assert str(url2) == "http://:pass@example.com"
 
 
+def test_without_credentials() -> None:
+    url = URL("http://john:pass@example.com:8080/path?a=1#frag")
+    url2 = url.without_credentials()
+    assert str(url2) == "http://example.com:8080/path?a=1#frag"
+    assert url2.host == "example.com"
+    assert url2.port == 8080
+    assert url2.path == "/path"
+    assert url2.query_string == "a=1"
+    assert url2.fragment == "frag"
+
+
+def test_without_credentials_ipv6_with_default_port() -> None:
+    url = URL("http://john:pass@[::1]:80/path")
+    url2 = url.without_credentials()
+    assert str(url2) == "http://[::1]/path"
+    assert url2.raw_authority == "[::1]:80"
+    assert url2.explicit_port == 80
+    assert url2.host == "::1"
+
+
+def test_without_credentials_encoded_url() -> None:
+    url = URL("http://user:pass@example.com/%2F?q=%2B#%23", encoded=True)
+    url2 = url.without_credentials()
+    assert str(url2) == "http://example.com/%2F?q=%2B#%23"
+    assert url2.raw_path == "/%2F"
+    assert url2.raw_query_string == "q=%2B"
+    assert url2.raw_fragment == "%23"
+
+
+def test_without_credentials_without_auth_info() -> None:
+    url = URL("http://example.com:8080/path?a=1#frag")
+    assert url.without_credentials() == url
+
+
 def test_from_str_with_host_ipv4() -> None:
     url = URL("http://host:80")
     url = url.with_host("192.168.1.1")

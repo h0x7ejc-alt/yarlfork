@@ -1157,6 +1157,14 @@ class URL:
         netloc = make_netloc(self.raw_user, password, encoded_host, port)
         return from_parts(self._scheme, netloc, self._path, self._query, self._fragment)
 
+    def without_credentials(self) -> "URL":
+        """Return a new URL with user and password removed."""
+        if "@" not in self._netloc:
+            return self
+        encoded_host = self.host_subcomponent or ""
+        netloc = make_netloc(None, None, encoded_host, self.explicit_port)
+        return from_parts(self._scheme, netloc, self._path, self._query, self._fragment)
+
     def with_host(self, host: str) -> "URL":
         """Return a new URL with host replaced.
 
