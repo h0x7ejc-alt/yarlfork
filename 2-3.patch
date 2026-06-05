@@ -1,0 +1,156 @@
+diff --git a/CHANGES/1730.feature.rst b/CHANGES/1730.feature.rst
+new file mode 100644
+index 0000000..4fed128
+--- /dev/null
++++ b/CHANGES/1730.feature.rst
+@@ -0,0 +1,4 @@
++Added :meth:`~yarl.URL.without_credentials` method that returns a new
++URL with user and password removed while preserving host, port, path,
++query and fragment
++-- by :user:`github-handle`.
+\ No newline at end of file
+diff --git a/docs/api.rst b/docs/api.rst
+index 704befb..d8c7e93 100644
+--- a/docs/api.rst
++++ b/docs/api.rst
+@@ -625,6 +625,17 @@ section generates a new :class:`URL` instance.
+       >>> URL('http://user:pass@example.com').with_password(None)
+       URL('http://user@example.com')
+ 
++.. method:: URL.without_credentials()
++
++   Return a new URL with *user* and *password* removed.
++
++   Host, port, path, query and fragment are preserved.
++
++   .. doctest::
++
++      >>> URL('http://user:pass@example.com/path?a=1#frag').without_credentials()
++      URL('http://example.com/path?a=1#frag')
++
+ .. method:: URL.with_host(host)
+ 
+    Return a new URL with *host* replaced, auto-encode *host* if needed.
+diff --git a/docs/spelling_wordlist.txt b/docs/spelling_wordlist.txt
+index b6ac726..02d6533 100644
+--- a/docs/spelling_wordlist.txt
++++ b/docs/spelling_wordlist.txt
+@@ -66,4 +66,5 @@ uncompiled
+ unencoded
+ unquoter
+ v1
++without_credentials
+ yarl
+diff --git a/tests/test_url_update_netloc.py b/tests/test_url_update_netloc.py
+index d1991e3..9864687 100644
+--- a/tests/test_url_update_netloc.py
++++ b/tests/test_url_update_netloc.py
+@@ -289,3 +289,80 @@ def test_with_port_invalid_type() -> None:
+ def test_with_port_invalid_range() -> None:
+     with pytest.raises(ValueError):
+         URL("http://example.com").with_port(-1)
++
++
++# with_credentials_removed
++
++
++def test_without_credentials() -> None:
++    url = URL("http://user:pass@example.com")
++    assert str(url.without_credentials()) == "http://example.com"
++
++
++def test_without_credentials_no_credentials() -> None:
++    url = URL("http://example.com")
++    assert url.without_credentials() is url
++
++
++def test_without_credentials_user_only() -> None:
++    url = URL("http://user@example.com")
++    assert str(url.without_credentials()) == "http://example.com"
++
++
++def test_without_credentials_password_only() -> None:
++    url = URL("http://:pass@example.com")
++    assert str(url.without_credentials()) == "http://example.com"
++
++
++def test_without_credentials_ipv6() -> None:
++    url = URL("http://user:pass@[::1]:8080/path")
++    assert str(url.without_credentials()) == "http://[::1]:8080/path"
++
++
++def test_without_credentials_ipv6_default_port() -> None:
++    url = URL("http://user:pass@[::1]:80/path")
++    assert str(url.without_credentials()) == "http://[::1]/path"
++
++
++def test_without_credentials_preserves_path_query_fragment() -> None:
++    url = URL("http://user:pass@example.com/path?a=1#frag")
++    result = url.without_credentials()
++    assert str(result) == "http://example.com/path?a=1#frag"
++    assert result.path == "/path"
++    assert result.query_string == "a=1"
++    assert result.fragment == "frag"
++
++
++def test_without_credentials_encoded() -> None:
++    url = URL("http://user%20name:pass%20word@example.com/path")
++    result = url.without_credentials()
++    assert result.raw_user is None
++    assert result.raw_password is None
++    assert str(result) == "http://example.com/path"
++
++
++def test_without_credentials_non_ascii() -> None:
++    url = URL("http://бажан:пароль@example.com/path")
++    result = url.without_credentials()
++    assert result.raw_user is None
++    assert result.raw_password is None
++    assert str(result) == "http://example.com/path"
++
++
++def test_without_credentials_for_relative_url() -> None:
++    with pytest.raises(ValueError):
++        URL("path/to").without_credentials()
++
++
++def test_without_credentials_with_explicit_port() -> None:
++    url = URL("http://user:pass@example.com:8080/path")
++    result = url.without_credentials()
++    assert str(result) == "http://example.com:8080/path"
++    assert result.explicit_port == 8080
++
++
++def test_without_credentials_default_port() -> None:
++    url = URL("http://user:pass@example.com:80/path")
++    result = url.without_credentials()
++    assert str(result) == "http://example.com/path"
++    assert result.explicit_port == 80
+diff --git a/yarl/_url.py b/yarl/_url.py
+index 92b6655..22357d3 100644
+--- a/yarl/_url.py
++++ b/yarl/_url.py
+@@ -1157,6 +1157,23 @@ class URL:
+         netloc = make_netloc(self.raw_user, password, encoded_host, port)
+         return from_parts(self._scheme, netloc, self._path, self._query, self._fragment)
+ 
++    def without_credentials(self) -> "URL":
++        """Return a new URL with user and password removed.
++
++        Host, port, path, query and fragment are preserved.
++
++        """
++        # N.B. doesn't cleanup query/fragment
++        if not (netloc := self._netloc):
++            raise ValueError(
++                "credentials removal is not allowed for relative URLs"
++            )
++        if "@" not in netloc:
++            return self
++        encoded_host = self.host_subcomponent or ""
++        netloc = make_netloc(None, None, encoded_host, self.explicit_port)
++        return from_parts(self._scheme, netloc, self._path, self._query, self._fragment)
++
+     def with_host(self, host: str) -> "URL":
+         """Return a new URL with host replaced.
+ 
