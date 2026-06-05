@@ -1,0 +1,82 @@
+diff --git a/CHANGES/1730.misc.rst b/CHANGES/1730.misc.rst
+new file mode 100644
+index 0000000..944abea
+--- /dev/null
++++ b/CHANGES/1730.misc.rst
+@@ -0,0 +1 @@
++Refactored internal quoter and unquoter instantiations in ``yarl._quoters`` to be more centralized and maintainable.
+diff --git a/tests/test_quoting_benchmarks.py b/tests/test_quoting_benchmarks.py
+index 5e66123..c8ac426 100644
+--- a/tests/test_quoting_benchmarks.py
++++ b/tests/test_quoting_benchmarks.py
+@@ -7,13 +7,10 @@ try:
+ except ImportError:  # pragma: no branch  # only hit in cibuildwheel
+     pytestmark = pytest.mark.skip("pytest-codspeed needs to be installed")
+ 
+-from yarl._quoting import _Quoter, _Unquoter
++from yarl._quoters import PATH_QUOTER, QUERY_QUOTER, QUOTER, UNQUOTER
++from yarl._quoting import _Quoter
+ 
+ QUOTER_SLASH_SAFE = _Quoter(safe="/")
+-QUOTER = _Quoter()
+-UNQUOTER = _Unquoter()
+-QUERY_QUOTER = _Quoter(safe="?/:@", protected="=+&;", qs=True, requote=False)
+-PATH_QUOTER = _Quoter(safe="@:", protected="/+", requote=False)
+ 
+ LONG_PATH = "/path/to" * 100
+ LONG_QUERY = "a=1&b=2&c=3&d=4&e=5&f=6&g=7&h=8&i=9&j=0" * 25
+diff --git a/yarl/_quoters.py b/yarl/_quoters.py
+index 78f77ca..49f58a5 100644
+--- a/yarl/_quoters.py
++++ b/yarl/_quoters.py
+@@ -4,19 +4,39 @@ from urllib.parse import quote
+ 
+ from ._quoting import _Quoter, _Unquoter
+ 
+-QUOTER = _Quoter(requote=False)
+-REQUOTER = _Quoter()
+-PATH_QUOTER = _Quoter(safe="@:", protected="/+", requote=False)
+-PATH_REQUOTER = _Quoter(safe="@:", protected="/+")
+-QUERY_QUOTER = _Quoter(safe="?/:@", protected="=+&;", qs=True, requote=False)
+-QUERY_REQUOTER = _Quoter(safe="?/:@", protected="=+&;", qs=True)
+-QUERY_PART_QUOTER = _Quoter(safe="?/:@", qs=True, requote=False)
+-FRAGMENT_QUOTER = _Quoter(safe="?/:@", requote=False)
+-FRAGMENT_REQUOTER = _Quoter(safe="?/:@")
++def _make_quoter_pair(
++    *,
++    safe: str = "",
++    protected: str = "",
++    qs: bool = False,
++) -> tuple[_Quoter, _Quoter]:
++    return (
++        _Quoter(safe=safe, protected=protected, qs=qs, requote=False),
++        _Quoter(safe=safe, protected=protected, qs=qs, requote=True),
++    )
+ 
++
++QUOTER, REQUOTER = _make_quoter_pair()
++
++_PATH_SAFE = "@:"
++_PATH_PROTECTED = "/+"
++PATH_QUOTER, PATH_REQUOTER = _make_quoter_pair(
++    safe=_PATH_SAFE, protected=_PATH_PROTECTED
++)
++
++_QUERY_SAFE = "?/:@"
++_QUERY_PROTECTED = "=+&;"
++QUERY_QUOTER, QUERY_REQUOTER = _make_quoter_pair(
++    safe=_QUERY_SAFE, protected=_QUERY_PROTECTED, qs=True
++)
++QUERY_PART_QUOTER = _Quoter(safe=_QUERY_SAFE, qs=True, requote=False)
++
++FRAGMENT_QUOTER, FRAGMENT_REQUOTER = _make_quoter_pair(safe=_QUERY_SAFE)
++
++_PATH_UNSAFE = "+"
+ UNQUOTER = _Unquoter()
+-PATH_UNQUOTER = _Unquoter(unsafe="+")
+-PATH_SAFE_UNQUOTER = _Unquoter(ignore="/%", unsafe="+")
++PATH_UNQUOTER = _Unquoter(unsafe=_PATH_UNSAFE)
++PATH_SAFE_UNQUOTER = _Unquoter(ignore="/%", unsafe=_PATH_UNSAFE)
+ QS_UNQUOTER = _Unquoter(qs=True)
+ UNQUOTER_PLUS = _Unquoter(plus=True)  # to match urllib.parse.unquote_plus
+ 
