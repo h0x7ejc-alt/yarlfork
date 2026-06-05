@@ -1,7 +1,6 @@
 import codecs
 import re
 from string import ascii_letters, ascii_lowercase, digits
-from typing import overload
 
 BASCII_LOWERCASE = ascii_lowercase.encode("ascii")
 BPCT_ALLOWED = {f"%{i:02X}".encode("ascii") for i in range(256)}
@@ -20,6 +19,20 @@ utf8_decoder = codecs.getincrementaldecoder("utf-8")
 
 
 class _Quoter:
+    """URL component quoter.
+    
+    Responsibilities:
+    - Encodes unsafe characters as %XX hex sequences
+    - When requote=True: Validates and normalizes existing %XX sequences
+    - When qs=True: Encodes spaces as + instead of %20 for query strings
+    
+    Parameters:
+        safe: Characters that should NOT be encoded
+        protected: Characters that, when appearing as %XX sequences,
+            should remain encoded even if requote=True and they're in safe
+        qs: Whether this is for a query string (space → + encoding)
+        requote: Whether to re-encode existing %XX sequences
+    """
     def __init__(
         self,
         *,
@@ -119,6 +132,20 @@ class _Quoter:
 
 
 class _Unquoter:
+    """URL component unquoter.
+    
+    Responsibilities:
+    - Decodes %XX hex sequences back to characters
+    - When qs=True: Decodes + back to space
+    - When plus=True: urllib.parse.unquote_plus compatibility mode
+    - When ignore is set: Leaves certain characters encoded
+    
+    Parameters:
+        ignore: Characters that should remain %XX encoded even if possible
+        unsafe: Characters that should be re-encoded if encountered
+        qs: Whether this is for a query string (+ → space decoding)
+        plus: urllib.parse.unquote_plus compatibility mode
+    """
     def __init__(
         self,
         *,

@@ -1,4 +1,8 @@
-"""Query string handling."""
+"""Query string handling.
+
+Uses QUERY_PART_QUOTER and QUERY_QUOTER because we're constructing
+new query strings from fresh components, not parsing existing ones.
+"""
 
 import math
 from collections.abc import Iterable, Mapping, Sequence
@@ -11,7 +15,7 @@ from ._quoters import QUERY_PART_QUOTER, QUERY_QUOTER
 SimpleQuery = Union[str, SupportsInt, float]
 QueryVariable = Union[SimpleQuery, Sequence[SimpleQuery]]
 Query = Union[
-    None, str, Mapping[str, QueryVariable], Sequence[tuple[str, QueryVariable]]
+    None, str, Mapping[str, QueryVariable], Sequence[tuple[str | istr, QueryVariable]]
 ]
 
 

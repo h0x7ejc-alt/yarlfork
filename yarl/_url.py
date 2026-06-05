@@ -180,7 +180,12 @@ def _encode_relative_scheme_colon(path: str) -> str:
 
 @lru_cache
 def encode_url(url_str: str) -> "URL":
-    """Parse unencoded URL."""
+    """Parse unencoded URL string into a URL object.
+    
+    Uses REQUOTERs because we're parsing an externally provided URL
+    string that may already have %XX encoded sequences that need
+    to be validated and normalized.
+    """
     cache: _InternalURLCache = {}
     host: str | None
     scheme, netloc, path, query, fragment = split_url(url_str)
@@ -429,7 +434,12 @@ class URL:
         fragment: str = "",
         encoded: bool = False,
     ) -> "URL":
-        """Creates and returns a new URL"""
+        """Create and return a new URL object from components.
+        
+        Uses QUOTERs (with requote=False) because we're constructing
+        a new URL from fresh components rather than parsing an existing
+        URL string. Existing %XX sequences are preserved as-is.
+        """
 
         if authority and (user or password or host or port):
             raise ValueError(
