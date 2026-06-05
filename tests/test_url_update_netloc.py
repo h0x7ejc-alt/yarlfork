@@ -289,3 +289,80 @@ def test_with_port_invalid_type() -> None:
 def test_with_port_invalid_range() -> None:
     with pytest.raises(ValueError):
         URL("http://example.com").with_port(-1)
+
+
+# with_credentials_removed
+
+
+def test_without_credentials() -> None:
+    url = URL("http://user:pass@example.com")
+    assert str(url.without_credentials()) == "http://example.com"
+
+
+def test_without_credentials_no_credentials() -> None:
+    url = URL("http://example.com")
+    assert url.without_credentials() is url
+
+
+def test_without_credentials_user_only() -> None:
+    url = URL("http://user@example.com")
+    assert str(url.without_credentials()) == "http://example.com"
+
+
+def test_without_credentials_password_only() -> None:
+    url = URL("http://:pass@example.com")
+    assert str(url.without_credentials()) == "http://example.com"
+
+
+def test_without_credentials_ipv6() -> None:
+    url = URL("http://user:pass@[::1]:8080/path")
+    assert str(url.without_credentials()) == "http://[::1]:8080/path"
+
+
+def test_without_credentials_ipv6_default_port() -> None:
+    url = URL("http://user:pass@[::1]:80/path")
+    assert str(url.without_credentials()) == "http://[::1]/path"
+
+
+def test_without_credentials_preserves_path_query_fragment() -> None:
+    url = URL("http://user:pass@example.com/path?a=1#frag")
+    result = url.without_credentials()
+    assert str(result) == "http://example.com/path?a=1#frag"
+    assert result.path == "/path"
+    assert result.query_string == "a=1"
+    assert result.fragment == "frag"
+
+
+def test_without_credentials_encoded() -> None:
+    url = URL("http://user%20name:pass%20word@example.com/path")
+    result = url.without_credentials()
+    assert result.raw_user is None
+    assert result.raw_password is None
+    assert str(result) == "http://example.com/path"
+
+
+def test_without_credentials_non_ascii() -> None:
+    url = URL("http://бажан:пароль@example.com/path")
+    result = url.without_credentials()
+    assert result.raw_user is None
+    assert result.raw_password is None
+    assert str(result) == "http://example.com/path"
+
+
+def test_without_credentials_for_relative_url() -> None:
+    with pytest.raises(ValueError):
+        URL("path/to").without_credentials()
+
+
+def test_without_credentials_with_explicit_port() -> None:
+    url = URL("http://user:pass@example.com:8080/path")
+    result = url.without_credentials()
+    assert str(result) == "http://example.com:8080/path"
+    assert result.explicit_port == 8080
+
+
+def test_without_credentials_default_port() -> None:
+    url = URL("http://user:pass@example.com:80/path")
+    result = url.without_credentials()
+    assert str(result) == "http://example.com/path"
+    assert result.explicit_port == 80

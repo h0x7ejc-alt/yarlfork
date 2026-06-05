@@ -625,6 +625,17 @@ section generates a new :class:`URL` instance.
       >>> URL('http://user:pass@example.com').with_password(None)
       URL('http://user@example.com')
 
+.. method:: URL.without_credentials()
+
+   Return a new URL with *user* and *password* removed.
+
+   Host, port, path, query and fragment are preserved.
+
+   .. doctest::
+
+      >>> URL('http://user:pass@example.com/path?a=1#frag').without_credentials()
+      URL('http://example.com/path?a=1#frag')
+
 .. method:: URL.with_host(host)
 
    Return a new URL with *host* replaced, auto-encode *host* if needed.

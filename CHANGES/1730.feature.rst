@@ -1,0 +1,4 @@
+Added :meth:`~yarl.URL.without_credentials` method that returns a new
+URL with user and password removed while preserving host, port, path,
+query and fragment
+-- by :user:`github-handle`.

@@ -1157,6 +1157,23 @@ class URL:
         netloc = make_netloc(self.raw_user, password, encoded_host, port)
         return from_parts(self._scheme, netloc, self._path, self._query, self._fragment)
 
+    def without_credentials(self) -> "URL":
+        """Return a new URL with user and password removed.
+
+        Host, port, path, query and fragment are preserved.
+
+        """
+        # N.B. doesn't cleanup query/fragment
+        if not (netloc := self._netloc):
+            raise ValueError(
+                "credentials removal is not allowed for relative URLs"
+            )
+        if "@" not in netloc:
+            return self
+        encoded_host = self.host_subcomponent or ""
+        netloc = make_netloc(None, None, encoded_host, self.explicit_port)
+        return from_parts(self._scheme, netloc, self._path, self._query, self._fragment)
+
     def with_host(self, host: str) -> "URL":
         """Return a new URL with host replaced.
 
