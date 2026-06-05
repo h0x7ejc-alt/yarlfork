@@ -1,0 +1,135 @@
+diff --git a/CHANGES/1730.feature.rst b/CHANGES/1730.feature.rst
+new file mode 100644
+index 0000000..26e5d6d
+--- /dev/null
++++ b/CHANGES/1730.feature.rst
+@@ -0,0 +1,2 @@
++Added :meth:`URL.without_userinfo` method to remove user and password from a URL while preserving all other parts
++-- by :user:`github-handle`
+diff --git a/docs/api.rst b/docs/api.rst
+index 704befb..796cde2 100644
+--- a/docs/api.rst
++++ b/docs/api.rst
+@@ -625,6 +625,24 @@ section generates a new :class:`URL` instance.
+       >>> URL('http://user:pass@example.com').with_password(None)
+       URL('http://user@example.com')
+ 
++.. method:: URL.without_userinfo()
++
++   Return a new URL with user and password removed.
++
++   All other parts (scheme, host, port, path, query, fragment)
++   are preserved.
++
++   If the URL has no user or password, the same URL is returned.
++
++   .. doctest::
++
++      >>> URL('http://user:pass@example.com/path').without_userinfo()
++      URL('http://example.com/path')
++      >>> URL('http://user:pass@[::1]:8080/path?q=1#frag').without_userinfo()
++      URL('http://[::1]:8080/path?q=1#frag')
++      >>> URL('http://example.com/path').without_userinfo()
++      URL('http://example.com/path')
++
+ .. method:: URL.with_host(host)
+ 
+    Return a new URL with *host* replaced, auto-encode *host* if needed.
+diff --git a/tests/test_url_update_netloc.py b/tests/test_url_update_netloc.py
+index d1991e3..9185d15 100644
+--- a/tests/test_url_update_netloc.py
++++ b/tests/test_url_update_netloc.py
+@@ -289,3 +289,56 @@ def test_with_port_invalid_type() -> None:
+ def test_with_port_invalid_range() -> None:
+     with pytest.raises(ValueError):
+         URL("http://example.com").with_port(-1)
++
++
++# without_userinfo
++
++
++def test_without_userinfo() -> None:
++    url = URL("http://user:pass@example.com/path")
++    assert str(url.without_userinfo()) == "http://example.com/path"
++
++
++def test_without_userinfo_keeps_host_port() -> None:
++    url = URL("http://user:pass@example.com:8080/path")
++    assert str(url.without_userinfo()) == "http://example.com:8080/path"
++
++
++def test_without_userinfo_ipv6() -> None:
++    url = URL("http://user:pass@[::1]:8080/path?q=1#frag")
++    assert str(url.without_userinfo()) == "http://[::1]:8080/path?q=1#frag"
++
++
++def test_without_userinfo_keeps_query_and_fragment() -> None:
++    url = URL("http://user:pass@example.com/path?a=b#anchor")
++    result = url.without_userinfo()
++    assert result.query_string == "a=b"
++    assert result.fragment == "anchor"
++
++
++def test_without_userinfo_no_userinfo() -> None:
++    url = URL("http://example.com/path")
++    assert url.without_userinfo() is url
++
++
++def test_without_userinfo_user_only() -> None:
++    url = URL("http://user@example.com/path")
++    assert str(url.without_userinfo()) == "http://example.com/path"
++
++
++def test_without_userinfo_password_only() -> None:
++    url = URL("http://:pass@example.com/path")
++    assert str(url.without_userinfo()) == "http://example.com/path"
++
++
++def test_without_userinfo_default_port() -> None:
++    url = URL("http://user:pass@example.com:80/path")
++    assert str(url.without_userinfo()) == "http://example.com/path"
++
++
++def test_without_userinfo_non_ascii_user() -> None:
++    url = URL("http://бажан:пароль@example.com/path")
++    result = url.without_userinfo()
++    assert result.user is None
++    assert result.password is None
++    assert str(result) == "http://example.com/path"
+diff --git a/yarl/_url.py b/yarl/_url.py
+index 92b6655..fb25b1b 100644
+--- a/yarl/_url.py
++++ b/yarl/_url.py
+@@ -1157,6 +1157,32 @@ class URL:
+         netloc = make_netloc(self.raw_user, password, encoded_host, port)
+         return from_parts(self._scheme, netloc, self._path, self._query, self._fragment)
+ 
++    def without_userinfo(self) -> "URL":
++        """Return a new URL with user and password removed.
++
++        All other parts (scheme, host, port, path, query, fragment)
++        are preserved.
++
++        If the URL has no user or password, the same URL is returned.
++
++        .. doctest::
++
++            >>> URL('http://user:pass@example.com/path').without_userinfo()
++            URL('http://example.com/path')
++            >>> URL('http://user:pass@[::1]:8080/path?q=1#frag').without_userinfo()
++            URL('http://[::1]:8080/path?q=1#frag')
++            >>> URL('http://example.com/path').without_userinfo()
++            URL('http://example.com/path')
++
++        """
++        # N.B. doesn't cleanup query/fragment
++        if self.raw_user is None and self.raw_password is None:
++            return self
++        encoded_host = self.host_subcomponent or ""
++        port = self.explicit_port
++        netloc = make_netloc(None, None, encoded_host, port)
++        return from_parts(self._scheme, netloc, self._path, self._query, self._fragment)
++
+     def with_host(self, host: str) -> "URL":
+         """Return a new URL with host replaced.
+ 
