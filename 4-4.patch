@@ -1,0 +1,258 @@
+diff --git a/test_quoting_simple.py b/test_quoting_simple.py
+new file mode 100644
+index 0000000..fc700b9
+--- /dev/null
++++ b/test_quoting_simple.py
+@@ -0,0 +1,44 @@
++#!/usr/bin/env python3
++"""Simple test script to verify that quoting functionality still works."""
++
++import sys
++sys.path.insert(0, '/app/yarlfork')
++
++from yarl import URL
++from yarl._quoters import (
++    QUOTER, REQUOTER,
++    PATH_QUOTER, PATH_REQUOTER,
++    QUERY_QUOTER, QUERY_REQUOTER,
++    FRAGMENT_QUOTER, FRAGMENT_REQUOTER,
++    UNQUOTER, PATH_UNQUOTER, QS_UNQUOTER
++)
++
++print("Testing quoters...")
++
++# Test basic quoting
++test_str = "hello world!@#$%^&*()"
++quoted = QUOTER(test_str)
++print(f"  QUOTER('{test_str}') = '{quoted}'")
++
++# Test requoting with existing %XX
++requote_str = "test%20space%zzinvalid"
++requoted = REQUOTER(requote_str)
++print(f"  REQUOTER('{requote_str}') = '{requoted}'")
++
++# Test URL construction
++url1 = URL.build(scheme="https", host="example.com", path="/test path", query={"q": "search query"})
++print(f"  URL.build() = {url1}")
++
++# Test URL parsing
++url2 = URL("https://example.com/test%20path?q=search%20query")
++print(f"  URL() parsed = {url2}")
++print(f"  url2.path = {url2.path}")
++
++# Test update_query
++url3 = url2.update_query({"new": "param value"})
++print(f"  update_query() = {url3}")
++
++# Test human_repr
++print(f"  human_repr() = {url3.human_repr()}")
++
++print("\nAll tests completed successfully!")
+\ No newline at end of file
+diff --git a/yarl/_query.py b/yarl/_query.py
+index 3f5ca22..71a3288 100644
+--- a/yarl/_query.py
++++ b/yarl/_query.py
+@@ -1,4 +1,8 @@
+-"""Query string handling."""
++"""Query string handling.
++
++Uses QUERY_PART_QUOTER and QUERY_QUOTER because we're constructing
++new query strings from fresh components, not parsing existing ones.
++"""
+ 
+ import math
+ from collections.abc import Iterable, Mapping, Sequence
+@@ -11,7 +15,7 @@ from ._quoters import QUERY_PART_QUOTER, QUERY_QUOTER
+ SimpleQuery = Union[str, SupportsInt, float]
+ QueryVariable = Union[SimpleQuery, Sequence[SimpleQuery]]
+ Query = Union[
+-    None, str, Mapping[str, QueryVariable], Sequence[tuple[str, QueryVariable]]
++    None, str, Mapping[str, QueryVariable], Sequence[tuple[str | istr, QueryVariable]]
+ ]
+ 
+ 
+@@ -124,4 +128,4 @@ def get_str_query(*args: Any, **kwargs: Any) -> str | None:
+     raise TypeError(
+         "Invalid query type: only str, mapping or "
+         "sequence of (key, value) pairs is allowed"
+-    )
++    )
+\ No newline at end of file
+diff --git a/yarl/_quoters.py b/yarl/_quoters.py
+index 78f77ca..0bf8ca8 100644
+--- a/yarl/_quoters.py
++++ b/yarl/_quoters.py
+@@ -1,27 +1,77 @@
+-"""Quoting and unquoting utilities for URL parts."""
++"""Quoting and unquoting utilities for URL parts.
++
++The quoters in this module follow these principles:
++- QUOTER: For new strings that don't have %XX encoded sequences yet
++  - Does not re-encode existing %XX sequences (requote=False)
++  - Used for: Newly constructed URL parts in URL.build(), with_*() methods
++  
++- REQUOTER: For existing strings that may already have %XX encoding
++  - Validates and normalizes existing %XX sequences (requote=True)
++  - Used for: Parsing URL strings from external sources (encode_url())
++
++- PATH_*: Specialized for path component, protects / and +
++- QUERY_*: Specialized for query strings
++- FRAGMENT_*: Specialized for URL fragments
++"""
+ 
+ from urllib.parse import quote
+ 
+ from ._quoting import _Quoter, _Unquoter
+ 
++# For general use: When we are quoting a new string that does not have
++# %XX encoding already (e.g., URL.build(), with_*() methods)
++# Does not re-encode existing %XX sequences
+ QUOTER = _Quoter(requote=False)
++
++# For parsing existing URL strings: When we need to normalize/validate
++# existing %XX encoded sequences (e.g., encode_url())
++# Re-encodes invalid %XX sequences and normalizes valid ones
+ REQUOTER = _Quoter()
++
++# PATH QUOTERS:
++# - Protects / (path separators) and + from being encoded
++# - Treats @ and : as safe characters
+ PATH_QUOTER = _Quoter(safe="@:", protected="/+", requote=False)
+ PATH_REQUOTER = _Quoter(safe="@:", protected="/+")
++
++# QUERY QUOTERS:
++# - Treats ? / : @ as safe
++# - Protects = + & ; from being encoded
++# - Special handling for spaces (encoded as + instead of %20)
+ QUERY_QUOTER = _Quoter(safe="?/:@", protected="=+&;", qs=True, requote=False)
+ QUERY_REQUOTER = _Quoter(safe="?/:@", protected="=+&;", qs=True)
+ QUERY_PART_QUOTER = _Quoter(safe="?/:@", qs=True, requote=False)
++
++# FRAGMENT QUOTERS:
++# - Treats ? / : @ as safe
++# - No special characters to protect
+ FRAGMENT_QUOTER = _Quoter(safe="?/:@", requote=False)
+ FRAGMENT_REQUOTER = _Quoter(safe="?/:@")
+ 
++# UNQUOTERS:
++# UNQUOTER: General purpose unquoter for most URL components
+ UNQUOTER = _Unquoter()
++
++# PATH_UNQUOTER: Specialized for paths, treats + as literal
+ PATH_UNQUOTER = _Unquoter(unsafe="+")
++
++# PATH_SAFE_UNQUOTER: For paths where / and % should remain encoded
+ PATH_SAFE_UNQUOTER = _Unquoter(ignore="/%", unsafe="+")
++
++# QS_UNQUOTER: Specialized for query strings, properly handles + and qs chars
+ QS_UNQUOTER = _Unquoter(qs=True)
+-UNQUOTER_PLUS = _Unquoter(plus=True)  # to match urllib.parse.unquote_plus
++
++# UNQUOTER_PLUS: Like urllib.parse.unquote_plus, decodes + to space
++UNQUOTER_PLUS = _Unquoter(plus=True)
+ 
+ 
+ def human_quote(s: str | None, unsafe: str) -> str | None:
++    """Quote a string for human-readable display.
++    
++    This function is only for display purposes (human_repr()),
++    not for actual URL construction. It prioritizes readability
++    over strict URL spec compliance.
++    """
+     if not s:
+         return s
+     for c in "%" + unsafe:
+diff --git a/yarl/_quoting_py.py b/yarl/_quoting_py.py
+index 98197aa..5ad1630 100644
+--- a/yarl/_quoting_py.py
++++ b/yarl/_quoting_py.py
+@@ -1,7 +1,6 @@
+ import codecs
+ import re
+ from string import ascii_letters, ascii_lowercase, digits
+-from typing import overload
+ 
+ BASCII_LOWERCASE = ascii_lowercase.encode("ascii")
+ BPCT_ALLOWED = {f"%{i:02X}".encode("ascii") for i in range(256)}
+@@ -20,6 +19,20 @@ utf8_decoder = codecs.getincrementaldecoder("utf-8")
+ 
+ 
+ class _Quoter:
++    """URL component quoter.
++    
++    Responsibilities:
++    - Encodes unsafe characters as %XX hex sequences
++    - When requote=True: Validates and normalizes existing %XX sequences
++    - When qs=True: Encodes spaces as + instead of %20 for query strings
++    
++    Parameters:
++        safe: Characters that should NOT be encoded
++        protected: Characters that, when appearing as %XX sequences,
++            should remain encoded even if requote=True and they're in safe
++        qs: Whether this is for a query string (space → + encoding)
++        requote: Whether to re-encode existing %XX sequences
++    """
+     def __init__(
+         self,
+         *,
+@@ -119,6 +132,20 @@ class _Quoter:
+ 
+ 
+ class _Unquoter:
++    """URL component unquoter.
++    
++    Responsibilities:
++    - Decodes %XX hex sequences back to characters
++    - When qs=True: Decodes + back to space
++    - When plus=True: urllib.parse.unquote_plus compatibility mode
++    - When ignore is set: Leaves certain characters encoded
++    
++    Parameters:
++        ignore: Characters that should remain %XX encoded even if possible
++        unsafe: Characters that should be re-encoded if encountered
++        qs: Whether this is for a query string (+ → space decoding)
++        plus: urllib.parse.unquote_plus compatibility mode
++    """
+     def __init__(
+         self,
+         *,
+@@ -210,4 +237,4 @@ class _Unquoter:
+         ret2 = "".join(ret)
+         if ret2 == val:
+             return val
+-        return ret2
++        return ret2
+\ No newline at end of file
+diff --git a/yarl/_url.py b/yarl/_url.py
+index 92b6655..595320a 100644
+--- a/yarl/_url.py
++++ b/yarl/_url.py
+@@ -180,7 +180,12 @@ def _encode_relative_scheme_colon(path: str) -> str:
+ 
+ @lru_cache
+ def encode_url(url_str: str) -> "URL":
+-    """Parse unencoded URL."""
++    """Parse unencoded URL string into a URL object.
++    
++    Uses REQUOTERs because we're parsing an externally provided URL
++    string that may already have %XX encoded sequences that need
++    to be validated and normalized.
++    """
+     cache: _InternalURLCache = {}
+     host: str | None
+     scheme, netloc, path, query, fragment = split_url(url_str)
+@@ -429,7 +434,12 @@ class URL:
+         fragment: str = "",
+         encoded: bool = False,
+     ) -> "URL":
+-        """Creates and returns a new URL"""
++        """Create and return a new URL object from components.
++        
++        Uses QUOTERs (with requote=False) because we're constructing
++        a new URL from fresh components rather than parsing an existing
++        URL string. Existing %XX sequences are preserved as-is.
++        """
+ 
+         if authority and (user or password or host or port):
+             raise ValueError(
