@@ -1157,6 +1157,32 @@ class URL:
         netloc = make_netloc(self.raw_user, password, encoded_host, port)
         return from_parts(self._scheme, netloc, self._path, self._query, self._fragment)
 
+    def without_userinfo(self) -> "URL":
+        """Return a new URL with user and password removed.
+
+        All other parts (scheme, host, port, path, query, fragment)
+        are preserved.
+
+        If the URL has no user or password, the same URL is returned.
+
+        .. doctest::
+
+            >>> URL('http://user:pass@example.com/path').without_userinfo()
+            URL('http://example.com/path')
+            >>> URL('http://user:pass@[::1]:8080/path?q=1#frag').without_userinfo()
+            URL('http://[::1]:8080/path?q=1#frag')
+            >>> URL('http://example.com/path').without_userinfo()
+            URL('http://example.com/path')
+
+        """
+        # N.B. doesn't cleanup query/fragment
+        if self.raw_user is None and self.raw_password is None:
+            return self
+        encoded_host = self.host_subcomponent or ""
+        port = self.explicit_port
+        netloc = make_netloc(None, None, encoded_host, port)
+        return from_parts(self._scheme, netloc, self._path, self._query, self._fragment)
+
     def with_host(self, host: str) -> "URL":
         """Return a new URL with host replaced.
 

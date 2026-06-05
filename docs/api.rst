@@ -625,6 +625,24 @@ section generates a new :class:`URL` instance.
       >>> URL('http://user:pass@example.com').with_password(None)
       URL('http://user@example.com')
 
+.. method:: URL.without_userinfo()
+
+   Return a new URL with user and password removed.
+
+   All other parts (scheme, host, port, path, query, fragment)
+   are preserved.
+
+   If the URL has no user or password, the same URL is returned.
+
+   .. doctest::
+
+      >>> URL('http://user:pass@example.com/path').without_userinfo()
+      URL('http://example.com/path')
+      >>> URL('http://user:pass@[::1]:8080/path?q=1#frag').without_userinfo()
+      URL('http://[::1]:8080/path?q=1#frag')
+      >>> URL('http://example.com/path').without_userinfo()
+      URL('http://example.com/path')
+
 .. method:: URL.with_host(host)
 
    Return a new URL with *host* replaced, auto-encode *host* if needed.

@@ -1,0 +1,2 @@
+Added :meth:`URL.without_userinfo` method to remove user and password from a URL while preserving all other parts
+-- by :user:`github-handle`

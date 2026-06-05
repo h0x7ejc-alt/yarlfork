@@ -289,3 +289,56 @@ def test_with_port_invalid_type() -> None:
 def test_with_port_invalid_range() -> None:
     with pytest.raises(ValueError):
         URL("http://example.com").with_port(-1)
+
+
+# without_userinfo
+
+
+def test_without_userinfo() -> None:
+    url = URL("http://user:pass@example.com/path")
+    assert str(url.without_userinfo()) == "http://example.com/path"
+
+
+def test_without_userinfo_keeps_host_port() -> None:
+    url = URL("http://user:pass@example.com:8080/path")
+    assert str(url.without_userinfo()) == "http://example.com:8080/path"
+
+
+def test_without_userinfo_ipv6() -> None:
+    url = URL("http://user:pass@[::1]:8080/path?q=1#frag")
+    assert str(url.without_userinfo()) == "http://[::1]:8080/path?q=1#frag"
+
+
+def test_without_userinfo_keeps_query_and_fragment() -> None:
+    url = URL("http://user:pass@example.com/path?a=b#anchor")
+    result = url.without_userinfo()
+    assert result.query_string == "a=b"
+    assert result.fragment == "anchor"
+
+
+def test_without_userinfo_no_userinfo() -> None:
+    url = URL("http://example.com/path")
+    assert url.without_userinfo() is url
+
+
+def test_without_userinfo_user_only() -> None:
+    url = URL("http://user@example.com/path")
+    assert str(url.without_userinfo()) == "http://example.com/path"
+
+
+def test_without_userinfo_password_only() -> None:
+    url = URL("http://:pass@example.com/path")
+    assert str(url.without_userinfo()) == "http://example.com/path"
+
+
+def test_without_userinfo_default_port() -> None:
+    url = URL("http://user:pass@example.com:80/path")
+    assert str(url.without_userinfo()) == "http://example.com/path"
+
+
+def test_without_userinfo_non_ascii_user() -> None:
+    url = URL("http://бажан:пароль@example.com/path")
+    result = url.without_userinfo()
+    assert result.user is None
+    assert result.password is None
+    assert str(result) == "http://example.com/path"
