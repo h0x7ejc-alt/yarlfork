@@ -1311,7 +1311,12 @@ class URL:
             query = get_str_query_from_sequence_iterable(qm.items())
         elif isinstance(in_query, str):
             qstr: MultiDict[str] = MultiDict(self._parsed_query)
-            qstr.update(query_to_pairs(in_query))
+            pairs: list[tuple[str, str]] = []
+            if in_query:
+                for k_v in in_query.split("&"):
+                    k, _, v = k_v.partition("=")
+                    pairs.append((k.replace("+", " "), v.replace("+", " ")))
+            qstr.update(pairs)
             query = get_str_query_from_iterable(qstr.items())
         elif isinstance(in_query, (bytes, bytearray, memoryview)):
             msg = "Invalid query type: bytes, bytearray and memoryview are forbidden"
