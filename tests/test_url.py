@@ -2648,3 +2648,68 @@ def test_url_with_fullwidth_percent_rejected(percent_char: str) -> None:
         ValueError, match="contains invalid characters under NFKC normalization"
     ):
         URL(f"http://evil.com{percent_char}2e.internal/")
+
+
+# without_credentials tests
+
+
+def test_without_credentials_basic() -> None:
+    url = URL("http://user:password@example.com:8888/path/to?a=1&b=2#fragment")
+    result = url.without_credentials()
+    assert result == URL("http://example.com:8888/path/to?a=1&b=2#fragment")
+    assert result.user is None
+    assert result.password is None
+
+
+def test_without_credentials_only_user() -> None:
+    url = URL("http://user@example.com:8888/path")
+    result = url.without_credentials()
+    assert result == URL("http://example.com:8888/path")
+    assert result.user is None
+
+
+def test_without_credentials_only_password() -> None:
+    url = URL("http://:password@example.com:8888/path")
+    result = url.without_credentials()
+    assert result == URL("http://example.com:8888/path")
+    assert result.password is None
+
+
+def test_without_credentials_ipv6() -> None:
+    url = URL("http://user:password@[::1]:8888/path?a=1#frag")
+    result = url.without_credentials()
+    assert result == URL("http://[::1]:8888/path?a=1#frag")
+    assert str(result) == "http://[::1]:8888/path?a=1#frag"
+
+
+def test_without_credentials_default_port() -> None:
+    url = URL("http://user:password@example.com:80/path")
+    result = url.without_credentials()
+    assert result == URL("http://example.com/path")
+    assert str(result) == "http://example.com/path"
+
+
+def test_without_credentials_no_credentials() -> None:
+    url = URL("http://example.com:8888/path?a=1#frag")
+    result = url.without_credentials()
+    assert result is url
+
+
+def test_without_credentials_relative_url() -> None:
+    url = URL("/path/to?a=1")
+    with pytest.raises(ValueError):
+        url.without_credentials()
+
+
+def test_without_credentials_nonascii() -> None:
+    url = URL("http://бажан:пароль@оун-упа.укр:8888/path?a=1")
+    result = url.without_credentials()
+    assert str(result) == "http://xn----8sb1bdhvc.xn--j1amh:8888/path?a=1"
+    assert result.user is None
+    assert result.password is None
+
+
+def test_without_credentials_encoded() -> None:
+    url = URL("http://%D0%B1%D0%B0%D0%B6%D0%B0%D0%BD:pass@example.com/path")
+    result = url.without_credentials()
+    assert str(result) == "http://example.com/path"

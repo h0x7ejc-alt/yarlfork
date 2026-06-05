@@ -1350,6 +1350,21 @@ class URL:
             )
         )
 
+    def without_credentials(self) -> "URL":
+        """Return a new URL with user and password removed.
+
+        Host, port, path, query and fragment are preserved.
+        """
+        if not (netloc := self._netloc):
+            raise ValueError("URL should be absolute")
+        if "@" in netloc:
+            encoded_host = self.host_subcomponent or ""
+            netloc = make_netloc(None, None, encoded_host, self.explicit_port)
+        else:
+            # No credentials, return self
+            return self
+        return from_parts(self._scheme, netloc, self._path, self._query, self._fragment)
+
     def with_fragment(self, fragment: str | None) -> "URL":
         """Return a new URL with fragment replaced.
 
