@@ -39,7 +39,30 @@ def test_validate_invalid() -> None:
 def test_get_schema() -> None:
     schema = TstModel.model_json_schema()
     assert schema == {
-        "properties": {"url": {"format": "uri", "title": "Url", "type": "string"}},
+        "properties": {
+            "url": {
+                "description": (
+                    "A URL string parsed by the yarl library. "
+                    "Supports absolute and relative URLs, "
+                    "internationalized domain names (IDNA), "
+                    "IPv4 and IPv6 addresses, and all standard "
+                    "URL components (scheme, user, password, "
+                    "host, port, path, query, fragment). "
+                    "Serializes to a string and deserializes "
+                    "from a string."
+                ),
+                "examples": [
+                    "https://example.com/path?query=1#fragment",
+                    "http://user:pass@example.com:8080/path",
+                    "//example.com/path",
+                    "/relative/path",
+                    "ftp://files.example.com/pub",
+                ],
+                "format": "uri",
+                "title": "Url",
+                "type": "string",
+            }
+        },
         "required": ["url"],
         "title": "TstModel",
         "type": "object",

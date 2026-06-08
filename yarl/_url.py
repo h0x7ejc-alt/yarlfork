@@ -1528,7 +1528,6 @@ class URL:
         return unsplit_result(self._scheme, netloc, path, query_string, fragment)
 
     if HAS_PYDANTIC:
-        # Borrowed from https://docs.pydantic.dev/latest/concepts/types/#handling-third-party-types
         @classmethod
         def __get_pydantic_json_schema__(
             cls,
@@ -1536,7 +1535,27 @@ class URL:
             handler: "GetJsonSchemaHandler",
         ) -> "JsonSchemaValue":
             field_schema: dict[str, Any] = {}
-            field_schema.update(type="string", format="uri")
+            field_schema.update(
+                type="string",
+                format="uri",
+                description=(
+                    "A URL string parsed by the yarl library. "
+                    "Supports absolute and relative URLs, "
+                    "internationalized domain names (IDNA), "
+                    "IPv4 and IPv6 addresses, and all standard "
+                    "URL components (scheme, user, password, "
+                    "host, port, path, query, fragment). "
+                    "Serializes to a string and deserializes "
+                    "from a string."
+                ),
+                examples=[
+                    "https://example.com/path?query=1#fragment",
+                    "http://user:pass@example.com:8080/path",
+                    "//example.com/path",
+                    "/relative/path",
+                    "ftp://files.example.com/pub",
+                ],
+            )
             return field_schema
 
         @classmethod
