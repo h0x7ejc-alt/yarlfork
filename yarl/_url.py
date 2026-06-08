@@ -1350,6 +1350,33 @@ class URL:
             )
         )
 
+    def has_query_param(self, name: str) -> bool:
+        """Check if a query parameter with the given name exists.
+
+        Returns True if the parameter exists, False otherwise.
+        """
+        if not self._query:
+            return False
+        for key, _ in self._parsed_query:
+            if key == name:
+                return True
+        return False
+
+    def has_multiple_query_values(self, name: str) -> bool:
+        """Check if a query parameter has multiple values.
+
+        Returns True if the parameter has 2 or more values, False otherwise.
+        """
+        if not self._query:
+            return False
+        count = 0
+        for key, _ in self._parsed_query:
+            if key == name:
+                count += 1
+                if count >= 2:
+                    return True
+        return False
+
     def with_fragment(self, fragment: str | None) -> "URL":
         """Return a new URL with fragment replaced.
 

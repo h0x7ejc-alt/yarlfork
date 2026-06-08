@@ -242,3 +242,36 @@ def test_update_query_with_sequence_of_pairs() -> None:
     new_url = url.update_query([("a", "1"), ("b", "2")])
     assert new_url.query == MultiDict([("a", "1"), ("b", "2")])
     assert new_url.query_string == "a=1&b=2"
+
+
+@pytest.mark.parametrize(
+    ("url_str", "param_name", "expected_result"),
+    [
+        ("http://example.com", "a", False),
+        ("http://example.com?a=1", "a", True),
+        ("http://example.com?a=1&b=2", "b", True),
+        ("http://example.com?a=1&b=2", "c", False),
+        ("http://example.com?a=1&b=2&a=3", "a", True),
+    ],
+)
+def test_has_query_param(url_str: str, param_name: str, expected_result: bool) -> None:
+    url = URL(url_str)
+    assert url.has_query_param(param_name) == expected_result
+
+
+@pytest.mark.parametrize(
+    ("url_str", "param_name", "expected_result"),
+    [
+        ("http://example.com", "a", False),
+        ("http://example.com?a=1", "a", False),
+        ("http://example.com?a=1&a=2", "a", True),
+        ("http://example.com?a=1&b=2&a=3", "a", True),
+        ("http://example.com?a=1&b=2", "b", False),
+        ("http://example.com?a=1&b=2&b=3&b=4", "b", True),
+    ],
+)
+def test_has_multiple_query_values(
+    url_str: str, param_name: str, expected_result: bool
+) -> None:
+    url = URL(url_str)
+    assert url.has_multiple_query_values(param_name) == expected_result
