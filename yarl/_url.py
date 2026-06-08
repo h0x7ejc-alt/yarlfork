@@ -948,6 +948,18 @@ class URL:
         """
         return QS_UNQUOTER(self._query) if self._query else ""
 
+    def has_query_param(self, query_param: str) -> bool:
+        """Check if query contains a parameter with the given name."""
+        if not isinstance(query_param, str):
+            raise TypeError("Invalid query parameter type")
+        return any(name == query_param for name, _ in self._parsed_query)
+
+    def query_param_count(self, query_param: str) -> int:
+        """Return how many values query stores for the given parameter name."""
+        if not isinstance(query_param, str):
+            raise TypeError("Invalid query parameter type")
+        return sum(1 for name, _ in self._parsed_query if name == query_param)
+
     @cached_property
     def path_qs(self) -> str:
         """Decoded path of URL with query."""
