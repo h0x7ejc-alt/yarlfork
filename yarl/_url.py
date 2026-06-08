@@ -240,7 +240,7 @@ def encode_url(url_str: str) -> "URL":
     self._path = path
     self._query = query
     self._fragment = fragment
-    self._cache = cache
+    self._initialize_cache(cache)
     return self
 
 
@@ -250,7 +250,7 @@ def pre_encoded_url(url_str: str) -> "URL":
     self = object.__new__(URL)
     val = split_url(url_str)
     self._scheme, self._netloc, self._path, self._query, self._fragment = val
-    self._cache = {}
+    self._initialize_cache()
     return self
 
 
@@ -283,7 +283,7 @@ def build_pre_encoded_url(
     self._path = path
     self._query = query_string
     self._fragment = fragment
-    self._cache = {}
+    self._initialize_cache()
     return self
 
 
@@ -297,7 +297,7 @@ def from_parts_uncached(
     self._path = path
     self._query = query
     self._fragment = fragment
-    self._cache = {}
+    self._initialize_cache()
     return self
 
 
@@ -384,6 +384,19 @@ class URL:
     _query: str
     _fragment: str
 
+    def _initialize_cache(self, initial_cache: _InternalURLCache | None = None) -> None:
+        """Initialize or reset the URL cache.
+
+        The URL object relies on a dictionary to cache derived properties,
+        parsed netlocs, and hash values. This cache is initialized upon
+        creation.
+
+        When unpickling an object, we intentionally do not restore its cache.
+        Re-initializing the cache ensures that derived values are cleanly
+        recalculated and avoids persisting unnecessary data in pickles.
+        """
+        self._cache = initial_cache if initial_cache is not None else {}
+
     def __new__(
         cls,
         val: Union[str, SplitResult, "URL", UndefinedType] = UNDEFINED,
@@ -409,7 +422,7 @@ class URL:
             # object in the `pre_encoded_url` or `encoded_url` caches.
             self = object.__new__(URL)
             self._scheme = self._netloc = self._path = self._query = self._fragment = ""
-            self._cache = {}
+            self._initialize_cache()
             return self
         raise TypeError("Constructor parameter should be str")
 
@@ -505,7 +518,7 @@ class URL:
             query_string = QUERY_QUOTER(query_string)
         self._query = query_string
         self._fragment = FRAGMENT_QUOTER(fragment) if fragment else fragment
-        self._cache = {}
+        self._initialize_cache()
         return self
 
     def __init_subclass__(cls) -> NoReturn:
@@ -606,7 +619,7 @@ class URL:
             unused: list[object]
             val, *unused = state
         self._scheme, self._netloc, self._path, self._query, self._fragment = val
-        self._cache = {}
+        self._initialize_cache()
 
     def _cache_netloc(self) -> None:
         """Cache the netloc parts of the URL."""
