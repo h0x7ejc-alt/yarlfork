@@ -1,0 +1,190 @@
+diff --git a/yarl/_url.py b/yarl/_url.py
+index 92b6655..4b66215 100644
+--- a/yarl/_url.py
++++ b/yarl/_url.py
+@@ -124,23 +124,55 @@ class CacheInfo(TypedDict):
+ 
+ 
+ class _InternalURLCache(TypedDict, total=False):
++    """Per-instance cache for lazily computed or expensive-to-parse values.
++
++    Cache lifecycle
++    ~~~~~~~~~~~~~~~
++    - **Creation**: Every constructor sets ``self._cache = {}`` (a fresh,
++      instance-owned dict).  The dict is never shared between URL objects.
++    - **Write-once population**: Keys are added lazily when a property is
++      first accessed.  Once a key is present it is never invalidated,
++      because the underlying URL attributes are immutable.
++    - **Pickle / unpickle**: ``__setstate__`` calls ``_reset_cache()`` to
++      discard any cached values from the pickled instance.  This prevents
++      the unpickled object from sharing stale references with the original
++      and ensures that subsequent property accesses recompute against the
++      restored attributes.
++
++    Keys actually stored at runtime
++    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
++    Only a subset of the keys below are ever written into the dict; the
++    rest exist here solely for static type checking of ``cached_property``
++    descriptors that conceptually belong to the same "cached" family.
++
++    - ``hash`` -- written by :meth:`__hash__` on first call.
++    - ``raw_user``, ``raw_password``, ``raw_host``, ``explicit_port`` --
++      written together by :meth:`_populate_netloc_cache` when any netloc sub-
++      component is first requested.
++    """
++
++    # -- Keys populated lazily at runtime --
++    hash: int
++    raw_user: str | None
++    raw_password: str | None
++    raw_host: str | None
++    explicit_port: int | None
++
++    # -- Keys used only for static typing of cached_property --
++    # These are never written into the dict directly; propcache stores
++    # their values on the instance via a side-channel mechanism.
+     _val: SplitURLType
+     _origin: "URL"
+     absolute: bool
+-    hash: int
+     scheme: str
+     raw_authority: str
+     authority: str
+-    raw_user: str | None
+     user: str | None
+-    raw_password: str | None
+     password: str | None
+-    raw_host: str | None
+     host: str | None
+     host_subcomponent: str | None
+     host_port_subcomponent: str | None
+     port: int | None
+-    explicit_port: int | None
+     raw_path: str
+     path: str
+     _parsed_query: list[tuple[str, str]]
+@@ -229,11 +261,6 @@ def encode_url(url_str: str) -> "URL":
+     if fragment:
+         fragment = FRAGMENT_REQUOTER(fragment)
+ 
+-    cache["scheme"] = scheme
+-    cache["raw_path"] = "/" if not path and netloc else path
+-    cache["raw_query_string"] = query
+-    cache["raw_fragment"] = fragment
+-
+     self = object.__new__(URL)
+     self._scheme = scheme
+     self._netloc = netloc
+@@ -343,6 +370,42 @@ class URL:
+     #             ; least-significant 32 bits of address
+     # h16         = 1*4HEXDIG
+     #             ; 16 bits of address represented in hexadecimal
++
++    # ------------------------------------------------------------------
++    # Per-instance cache (_cache)
++    # ------------------------------------------------------------------
++    # URL objects are immutable.  To avoid recomputing expensive derived
++    # values, each instance owns a plain dict (``self._cache``) that is
++    # populated lazily on first access.
++    #
++    # Two kinds of entries live in this dict:
++    #
++    # 1. **Directly written keys** -- the code assigns into ``self._cache``
++    #    at runtime.  Currently these are ``hash`` (set by ``__hash__``)
++    #    and the four netloc sub-components (``raw_user``, ``raw_password``,
++    #    ``raw_host``, ``explicit_port``), which are always written
++    #    together by ``_populate_netloc_cache()``.
++    #
++    # 2. **cached_property keys** -- ``propcache``'s ``cached_property`` /
++    #    ``under_cached_property`` stores their computed values in this
++    #    dict under the property name.  The TypedDict declaration includes
++    #    those names for static type checking even though the URL class
++    #    itself never writes them.
++    #
++    # Cache invalidation never happens during normal operation because the
++    # underlying ``_scheme``, ``_netloc``, ``_path``, ``_query``, and
++    # ``_fragment`` attributes are never mutated after construction.
++    #
++    # Pickle / unpickle
++    # ~~~~~~~~~~~~~~~~~
++    # ``__setstate__`` calls ``_reset_cache()`` to discard any cached
++    # values from the pickled representation.  This is required because:
++    #   (a) the pickled dict may contain references that would be shared
++    #       with the original object if restored verbatim, and
++    #   (b) the ``cached_property`` mechanism stores values on the
++    #       instance dict, which must be cleared so that properties
++    #       recompute against the newly restored attributes.
++    # ------------------------------------------------------------------
+     # IPv4address = dec-octet "." dec-octet "." dec-octet "." dec-octet
+     # dec-octet   = DIGIT                 ; 0-9
+     #             / %x31-39 DIGIT         ; 10-99
+@@ -606,13 +669,28 @@ class URL:
+             unused: list[object]
+             val, *unused = state
+         self._scheme, self._netloc, self._path, self._query, self._fragment = val
++        self._reset_cache()
++
++    def _reset_cache(self) -> None:
++        """Discard all cached values so that properties recompute.
++
++        Called exclusively by ``__setstate__`` during unpickle.  A fresh
++        dict is assigned (never ``.clear()``) so that any references to
++        the old dict held by the pickled representation are not mutated.
++        """
+         self._cache = {}
+ 
+-    def _cache_netloc(self) -> None:
+-        """Cache the netloc parts of the URL."""
+-        c = self._cache
++    def _populate_netloc_cache(self) -> None:
++        """Parse ``_netloc`` once and cache the four sub-components.
++
++        After the first call the keys ``raw_user``, ``raw_password``,
++        ``raw_host``, and ``explicit_port`` are present in ``_cache``.
++        Subsequent calls return immediately because the URL is immutable.
++        """
++        if "raw_host" in self._cache:
++            return
+         split_loc = split_netloc(self._netloc)
+-        c["raw_user"], c["raw_password"], c["raw_host"], c["explicit_port"] = split_loc
++        self._cache["raw_user"], self._cache["raw_password"], self._cache["raw_host"], self._cache["explicit_port"] = split_loc
+ 
+     def is_absolute(self) -> bool:
+         """A check for absolute URLs.
+@@ -730,8 +808,7 @@ class URL:
+         None if user is missing.
+ 
+         """
+-        # not .username
+-        self._cache_netloc()
++        self._populate_netloc_cache()
+         return self._cache["raw_user"]
+ 
+     @cached_property
+@@ -752,7 +829,7 @@ class URL:
+         None if password is missing.
+ 
+         """
+-        self._cache_netloc()
++        self._populate_netloc_cache()
+         return self._cache["raw_password"]
+ 
+     @cached_property
+@@ -777,7 +854,7 @@ class URL:
+         """
+         # Use host instead of hostname for sake of shortness
+         # May add .hostname prop later
+-        self._cache_netloc()
++        self._populate_netloc_cache()
+         return self._cache["raw_host"]
+ 
+     @cached_property
+@@ -881,7 +958,7 @@ class URL:
+         None for relative URLs or URLs without explicit port.
+ 
+         """
+-        self._cache_netloc()
++        self._populate_netloc_cache()
+         return self._cache["explicit_port"]
+ 
+     @cached_property
