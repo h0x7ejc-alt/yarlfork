@@ -1,0 +1,4 @@
+Added :meth:`~yarl.URL.has_query_param` and :meth:`~yarl.URL.is_multi_query_param`
+methods to check whether a query parameter exists in the URL and whether it
+has more than one value without going through the ``MultiDict``
+-- by :user:`github-handle`.

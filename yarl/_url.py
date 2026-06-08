@@ -1350,6 +1350,57 @@ class URL:
             )
         )
 
+    def has_query_param(self, name: str) -> bool:
+        """Check whether a query parameter exists in the URL.
+
+        Returns ``True`` if the query parameter ``name`` is present in the
+        URL's query string, regardless of its value.
+
+        .. doctest::
+
+           >>> URL('http://example.com/?a=1&b=2').has_query_param('a')
+           True
+           >>> URL('http://example.com/?a=1&b=2').has_query_param('c')
+           False
+           >>> URL('http://example.com/').has_query_param('a')
+           False
+           >>> URL('http://example.com/?a=').has_query_param('a')
+           True
+           >>> URL('http://example.com/?a=1&a=2').has_query_param('a')
+           True
+
+        """
+        for k, _ in self._parsed_query:
+            if k == name:
+                return True
+        return False
+
+    def is_multi_query_param(self, name: str) -> bool:
+        """Check whether a query parameter has more than one value.
+
+        Returns ``True`` if the query parameter ``name`` appears more than
+        once in the URL's query string.
+
+        .. doctest::
+
+           >>> URL('http://example.com/?a=1&a=2').is_multi_query_param('a')
+           True
+           >>> URL('http://example.com/?a=1&b=2').is_multi_query_param('a')
+           False
+           >>> URL('http://example.com/?a=1&b=2').is_multi_query_param('b')
+           False
+           >>> URL('http://example.com/').is_multi_query_param('a')
+           False
+
+        """
+        count = 0
+        for k, _ in self._parsed_query:
+            if k == name:
+                count += 1
+                if count > 1:
+                    return True
+        return False
+
     def with_fragment(self, fragment: str | None) -> "URL":
         """Return a new URL with fragment replaced.
 

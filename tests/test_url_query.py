@@ -242,3 +242,80 @@ def test_update_query_with_sequence_of_pairs() -> None:
     new_url = url.update_query([("a", "1"), ("b", "2")])
     assert new_url.query == MultiDict([("a", "1"), ("b", "2")])
     assert new_url.query_string == "a=1&b=2"
+
+
+# ========================================
+# has_query_param / is_multi_query_param
+# ========================================
+
+
+def test_has_query_param_exists() -> None:
+    url = URL("http://example.com/?a=1&b=2")
+    assert url.has_query_param("a") is True
+    assert url.has_query_param("b") is True
+
+
+def test_has_query_param_missing() -> None:
+    url = URL("http://example.com/?a=1&b=2")
+    assert url.has_query_param("c") is False
+
+
+def test_has_query_param_no_query() -> None:
+    url = URL("http://example.com/")
+    assert url.has_query_param("a") is False
+
+
+def test_has_query_param_empty_value() -> None:
+    url = URL("http://example.com/?a=")
+    assert url.has_query_param("a") is True
+
+
+def test_has_query_param_duplicate_keys() -> None:
+    url = URL("http://example.com/?a=1&a=2")
+    assert url.has_query_param("a") is True
+
+
+def test_has_query_param_non_ascii() -> None:
+    url = URL("http://example.com/?ключ=знач")
+    assert url.has_query_param("ключ") is True
+    assert url.has_query_param("знач") is False
+
+
+def test_is_multi_query_param_multiple() -> None:
+    url = URL("http://example.com/?a=1&a=2")
+    assert url.is_multi_query_param("a") is True
+
+
+def test_is_multi_query_param_single() -> None:
+    url = URL("http://example.com/?a=1&b=2")
+    assert url.is_multi_query_param("a") is False
+    assert url.is_multi_query_param("b") is False
+
+
+def test_is_multi_query_param_no_query() -> None:
+    url = URL("http://example.com/")
+    assert url.is_multi_query_param("a") is False
+
+
+def test_is_multi_query_param_missing() -> None:
+    url = URL("http://example.com/?a=1&b=2")
+    assert url.is_multi_query_param("c") is False
+
+
+def test_is_multi_query_param_three_values() -> None:
+    url = URL("http://example.com/?a=1&a=2&a=3")
+    assert url.is_multi_query_param("a") is True
+
+
+def test_is_multi_query_param_empty_value() -> None:
+    url = URL("http://example.com/?a=&a=")
+    assert url.is_multi_query_param("a") is True
+
+
+def test_has_and_is_multi_on_relative_url() -> None:
+    url = URL("path?x=1&x=2&y=3")
+    assert url.has_query_param("x") is True
+    assert url.has_query_param("y") is True
+    assert url.has_query_param("z") is False
+    assert url.is_multi_query_param("x") is True
+    assert url.is_multi_query_param("y") is False

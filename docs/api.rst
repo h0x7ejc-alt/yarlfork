@@ -862,6 +862,42 @@ section generates a new :class:`URL` instance.
 
    .. versionadded:: 1.10.0
 
+.. method:: URL.has_query_param(name)
+
+   Check whether a query parameter exists in the URL.
+
+   Returns ``True`` if the query parameter ``name`` is present in the
+   URL's query string, regardless of its value.
+
+   .. doctest::
+
+      >>> URL('http://example.com/?a=1&b=2').has_query_param('a')
+      True
+      >>> URL('http://example.com/?a=1&b=2').has_query_param('c')
+      False
+      >>> URL('http://example.com/').has_query_param('a')
+      False
+      >>> URL('http://example.com/?a=').has_query_param('a')
+      True
+      >>> URL('http://example.com/?a=1&a=2').has_query_param('a')
+      True
+
+.. method:: URL.is_multi_query_param(name)
+
+   Check whether a query parameter has more than one value.
+
+   Returns ``True`` if the query parameter ``name`` appears more than
+   once in the URL's query string.
+
+   .. doctest::
+
+      >>> URL('http://example.com/?a=1&a=2').is_multi_query_param('a')
+      True
+      >>> URL('http://example.com/?a=1&b=2').is_multi_query_param('a')
+      False
+      >>> URL('http://example.com/').is_multi_query_param('a')
+      False
+
 .. method:: URL.with_fragment(fragment)
 
    Return a new URL with *fragment* replaced, auto-encode *fragment* if needed.
