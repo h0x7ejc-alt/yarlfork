@@ -162,6 +162,25 @@ class _InternalURLCache(TypedDict, total=False):
     suffixes: tuple[str, ...]
 
 
+def _create_empty_cache() -> _InternalURLCache:
+    """Create a new empty cache for a URL instance.
+
+    The cache stores lazily-computed values. All cached values are derived from
+    the immutable core URL components (_scheme, _netloc, _path, _query, _fragment)
+    so they can be safely recomputed on demand after unpickling.
+    """
+    return {}
+
+
+def _clear_cache(self: URL) -> None:
+    """Clear all cached values.
+
+    This is called during unpickling because the core URL components are restored
+    from the pickled state, and all cached values must be recomputed from scratch.
+    """
+    self._cache.clear()
+
+
 def rewrite_module(obj: _T) -> _T:
     obj.__module__ = "yarl"
     return obj
@@ -181,7 +200,7 @@ def _encode_relative_scheme_colon(path: str) -> str:
 @lru_cache
 def encode_url(url_str: str) -> "URL":
     """Parse unencoded URL."""
-    cache: _InternalURLCache = {}
+    cache = _create_empty_cache()
     host: str | None
     scheme, netloc, path, query, fragment = split_url(url_str)
     if not netloc:  # netloc
@@ -250,7 +269,7 @@ def pre_encoded_url(url_str: str) -> "URL":
     self = object.__new__(URL)
     val = split_url(url_str)
     self._scheme, self._netloc, self._path, self._query, self._fragment = val
-    self._cache = {}
+    self._cache = _create_empty_cache()
     return self
 
 
@@ -283,7 +302,7 @@ def build_pre_encoded_url(
     self._path = path
     self._query = query_string
     self._fragment = fragment
-    self._cache = {}
+    self._cache = _create_empty_cache()
     return self
 
 
@@ -297,7 +316,7 @@ def from_parts_uncached(
     self._path = path
     self._query = query
     self._fragment = fragment
-    self._cache = {}
+    self._cache = _create_empty_cache()
     return self
 
 
@@ -404,12 +423,15 @@ class URL:
         if isinstance(val, str):
             return pre_encoded_url(str(val)) if encoded else encode_url(str(val))
         if val is UNDEFINED:
-            # Special case for UNDEFINED since it might be unpickling and we do
-            # not want to cache as the `__set_state__` call would mutate the URL
-            # object in the `pre_encoded_url` or `encoded_url` caches.
+            # When unpickling, pickle calls __new__(UNDEFINED) first, then
+            # __setstate__ to restore the real components. We must not create
+            # the URL through the lru_cache-wrapped constructors (pre_encoded_url
+            # / encode_url) because __setstate__ would mutate the cached object,
+            # corrupting the LRU cache. Instead we create a blank URL directly
+            # and let __setstate__ fill in the real values and reset the cache.
             self = object.__new__(URL)
             self._scheme = self._netloc = self._path = self._query = self._fragment = ""
-            self._cache = {}
+            self._cache = _create_empty_cache()
             return self
         raise TypeError("Constructor parameter should be str")
 
@@ -505,7 +527,7 @@ class URL:
             query_string = QUERY_QUOTER(query_string)
         self._query = query_string
         self._fragment = FRAGMENT_QUOTER(fragment) if fragment else fragment
-        self._cache = {}
+        self._cache = _create_empty_cache()
         return self
 
     def __init_subclass__(cls) -> NoReturn:
@@ -606,10 +628,18 @@ class URL:
             unused: list[object]
             val, *unused = state
         self._scheme, self._netloc, self._path, self._query, self._fragment = val
-        self._cache = {}
+        _clear_cache(self)
 
     def _cache_netloc(self) -> None:
-        """Cache the netloc parts of the URL."""
+        """Split the netloc into its components and cache the results.
+
+        Parses the raw netloc string into user, password, host, and explicit port
+        components. The parsing is done lazily (on first access to any of
+        raw_user/raw_password/raw_host/explicit_port) and cached for subsequent
+        accesses. If already cached, this is a no-op.
+        """
+        if "raw_user" in self._cache:
+            return
         c = self._cache
         split_loc = split_netloc(self._netloc)
         c["raw_user"], c["raw_password"], c["raw_host"], c["explicit_port"] = split_loc
