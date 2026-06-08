@@ -1,0 +1,64 @@
+diff --git a/tests/test_query_param_helpers.py b/tests/test_query_param_helpers.py
+new file mode 100644
+index 0000000..8d6077e
+--- /dev/null
++++ b/tests/test_query_param_helpers.py
+@@ -0,0 +1,35 @@
++import pytest
++
++from yarl import URL
++
++
++@pytest.mark.parametrize(
++    ("url", "query_param", "expected_present", "expected_count"),
++    [
++        (URL("http://example.com"), "a", False, 0),
++        (URL("http://example.com?a=1"), "a", True, 1),
++        (URL("http://example.com?a=1&a=2&b=3"), "a", True, 2),
++        (URL("http://example.com?a=1&a=2&b=3"), "b", True, 1),
++        (URL("http://example.com?%D0%BA%D0%BB=1&%D0%BA%D0%BB=2"), "кл", True, 2),
++        (URL("http://example.com?a=&a=2"), "a", True, 2),
++    ],
++)
++def test_query_param_helpers(
++    url: URL, query_param: str, expected_present: bool, expected_count: int
++) -> None:
++    original_query_string = url.query_string
++
++    assert url.has_query_param(query_param) is expected_present
++    assert url.query_param_count(query_param) == expected_count
++    assert url.query_string == original_query_string
++
++
++@pytest.mark.parametrize("query_param", [None, 1])
++def test_query_param_helpers_reject_non_str(query_param: object) -> None:
++    url = URL("http://example.com?a=1")
++
++    with pytest.raises(TypeError, match="Invalid query parameter type"):
++        url.has_query_param(query_param)  # type: ignore[arg-type]
++
++    with pytest.raises(TypeError, match="Invalid query parameter type"):
++        url.query_param_count(query_param)  # type: ignore[arg-type]
+diff --git a/yarl/_url.py b/yarl/_url.py
+index 92b6655..85b05dc 100644
+--- a/yarl/_url.py
++++ b/yarl/_url.py
+@@ -948,6 +948,18 @@ class URL:
+         """
+         return QS_UNQUOTER(self._query) if self._query else ""
+ 
++    def has_query_param(self, query_param: str) -> bool:
++        """Check if query contains a parameter with the given name."""
++        if not isinstance(query_param, str):
++            raise TypeError("Invalid query parameter type")
++        return any(name == query_param for name, _ in self._parsed_query)
++
++    def query_param_count(self, query_param: str) -> int:
++        """Return how many values query stores for the given parameter name."""
++        if not isinstance(query_param, str):
++            raise TypeError("Invalid query parameter type")
++        return sum(1 for name, _ in self._parsed_query if name == query_param)
++
+     @cached_property
+     def path_qs(self) -> str:
+         """Decoded path of URL with query."""
