@@ -1,0 +1,128 @@
+diff --git a/CHANGES/1730.feature.rst b/CHANGES/1730.feature.rst
+new file mode 100644
+index 0000000..77f521f
+--- /dev/null
++++ b/CHANGES/1730.feature.rst
+@@ -0,0 +1,3 @@
++Added :meth:`URL.has_query_param` method to check for query key existence
++and count duplicate keys without constructing a ``MultiDictProxy``
++-- by :user:`github-handle`.
+diff --git a/docs/api.rst b/docs/api.rst
+index 704befb..8e27f9f 100644
+--- a/docs/api.rst
++++ b/docs/api.rst
+@@ -852,6 +852,29 @@ section generates a new :class:`URL` instance.
+       Support subclasses of :class:`int` (except :class:`bool`) and :class:`float`
+       as a query parameter value.
+ 
++.. method:: URL.has_query_param(key)
++
++   Return the number of values for a given query key.
++
++   Returns ``0`` if the key is not present in the query part.
++   Returns the count of values if the key is present, which allows
++   checking both existence and whether a key has multiple values
++   (duplicate keys).
++
++   This method does not construct a :class:`~multidict.MultiDictProxy`,
++   making it more efficient when only existence or count is needed.
++
++   .. doctest::
++
++      >>> URL('http://example.com/path?a=1&b=2').has_query_param('a')
++      1
++      >>> URL('http://example.com/path?a=1&b=2&a=3').has_query_param('a')
++      2
++      >>> URL('http://example.com/path?a=1&b=2').has_query_param('c')
++      0
++
++   .. versionadded:: 1.12.0
++
+ .. method:: URL.without_query_params(*query_params)
+ 
+    Return a new URL whose *query* part does not contain specified ``query_params``.
+diff --git a/tests/test_url_query.py b/tests/test_url_query.py
+index 2d650ba..4a65e39 100644
+--- a/tests/test_url_query.py
++++ b/tests/test_url_query.py
+@@ -213,6 +213,51 @@ def test_skip_dropping_query_params(
+     assert new_url is url
+ 
+ 
++def test_has_query_param_single_value() -> None:
++    url = URL("http://example.com?a=1&b=2")
++    assert url.has_query_param("a") == 1
++    assert url.has_query_param("b") == 1
++
++
++def test_has_query_param_multiple_values() -> None:
++    url = URL("http://example.com?a=1&b=2&a=3")
++    assert url.has_query_param("a") == 2
++    assert url.has_query_param("b") == 1
++
++
++def test_has_query_param_missing_key() -> None:
++    url = URL("http://example.com?a=1&b=2")
++    assert url.has_query_param("c") == 0
++
++
++def test_has_query_param_empty_query() -> None:
++    url = URL("http://example.com")
++    assert url.has_query_param("a") == 0
++
++
++def test_has_query_param_empty_value() -> None:
++    url = URL("http://example.com?a=")
++    assert url.has_query_param("a") == 1
++
++
++def test_has_query_param_non_ascii_key() -> None:
++    url = URL("http://example.com?ключ=знач")
++    assert url.has_query_param("ключ") == 1
++    assert url.has_query_param("other") == 0
++
++
++def test_has_query_param_with_spaces() -> None:
++    url = URL("http://example.com?a+b=c+d")
++    assert url.has_query_param("a b") == 1
++    assert url.has_query_param("a") == 0
++
++
++def test_has_query_param_many_duplicates() -> None:
++    url = URL("http://example.com?c=e&c=f&c=g&c=h")
++    assert url.has_query_param("c") == 4
++    assert url.has_query_param("e") == 0
++
++
+ def test_update_query_rejects_bytes() -> None:
+     url = URL("http://example.com")
+     with pytest.raises(TypeError):
+diff --git a/yarl/_url.py b/yarl/_url.py
+index 92b6655..9e0df93 100644
+--- a/yarl/_url.py
++++ b/yarl/_url.py
+@@ -1337,6 +1337,24 @@ class URL:
+             self._scheme, self._netloc, self._path, query, self._fragment
+         )
+ 
++    def has_query_param(self, key: str) -> int:
++        """Return the number of values for a given query key.
++
++        Returns 0 if the key is not present in the query part.
++        Returns the count of values if the key is present, which
++        allows checking both existence and whether a key has
++        multiple values (duplicate keys).
++
++        This method does not construct a MultiDictProxy, making it
++        more efficient when only existence or count is needed.
++
++        """
++        count = 0
++        for name, _ in self._parsed_query:
++            if name == key:
++                count += 1
++        return count
++
+     def without_query_params(self, *query_params: str) -> "URL":
+         """Remove some keys from query part and return new URL."""
+         params_to_remove = set(query_params) & self.query.keys()
