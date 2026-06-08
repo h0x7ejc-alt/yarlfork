@@ -1,0 +1,205 @@
+diff --git a/CHANGES/1730.feature.rst b/CHANGES/1730.feature.rst
+new file mode 100644
+index 0000000..0be2052
+--- /dev/null
++++ b/CHANGES/1730.feature.rst
+@@ -0,0 +1,4 @@
++Added :meth:`~yarl.URL.has_query_param` and :meth:`~yarl.URL.is_multi_query_param`
++methods to check whether a query parameter exists in the URL and whether it
++has more than one value without going through the ``MultiDict``
++-- by :user:`github-handle`.
+\ No newline at end of file
+diff --git a/docs/api.rst b/docs/api.rst
+index 704befb..aac2c58 100644
+--- a/docs/api.rst
++++ b/docs/api.rst
+@@ -862,6 +862,42 @@ section generates a new :class:`URL` instance.
+ 
+    .. versionadded:: 1.10.0
+ 
++.. method:: URL.has_query_param(name)
++
++   Check whether a query parameter exists in the URL.
++
++   Returns ``True`` if the query parameter ``name`` is present in the
++   URL's query string, regardless of its value.
++
++   .. doctest::
++
++      >>> URL('http://example.com/?a=1&b=2').has_query_param('a')
++      True
++      >>> URL('http://example.com/?a=1&b=2').has_query_param('c')
++      False
++      >>> URL('http://example.com/').has_query_param('a')
++      False
++      >>> URL('http://example.com/?a=').has_query_param('a')
++      True
++      >>> URL('http://example.com/?a=1&a=2').has_query_param('a')
++      True
++
++.. method:: URL.is_multi_query_param(name)
++
++   Check whether a query parameter has more than one value.
++
++   Returns ``True`` if the query parameter ``name`` appears more than
++   once in the URL's query string.
++
++   .. doctest::
++
++      >>> URL('http://example.com/?a=1&a=2').is_multi_query_param('a')
++      True
++      >>> URL('http://example.com/?a=1&b=2').is_multi_query_param('a')
++      False
++      >>> URL('http://example.com/').is_multi_query_param('a')
++      False
++
+ .. method:: URL.with_fragment(fragment)
+ 
+    Return a new URL with *fragment* replaced, auto-encode *fragment* if needed.
+diff --git a/tests/test_url_query.py b/tests/test_url_query.py
+index 2d650ba..935b3dd 100644
+--- a/tests/test_url_query.py
++++ b/tests/test_url_query.py
+@@ -242,3 +242,80 @@ def test_update_query_with_sequence_of_pairs() -> None:
+     new_url = url.update_query([("a", "1"), ("b", "2")])
+     assert new_url.query == MultiDict([("a", "1"), ("b", "2")])
+     assert new_url.query_string == "a=1&b=2"
++
++
++# ========================================
++# has_query_param / is_multi_query_param
++# ========================================
++
++
++def test_has_query_param_exists() -> None:
++    url = URL("http://example.com/?a=1&b=2")
++    assert url.has_query_param("a") is True
++    assert url.has_query_param("b") is True
++
++
++def test_has_query_param_missing() -> None:
++    url = URL("http://example.com/?a=1&b=2")
++    assert url.has_query_param("c") is False
++
++
++def test_has_query_param_no_query() -> None:
++    url = URL("http://example.com/")
++    assert url.has_query_param("a") is False
++
++
++def test_has_query_param_empty_value() -> None:
++    url = URL("http://example.com/?a=")
++    assert url.has_query_param("a") is True
++
++
++def test_has_query_param_duplicate_keys() -> None:
++    url = URL("http://example.com/?a=1&a=2")
++    assert url.has_query_param("a") is True
++
++
++def test_has_query_param_non_ascii() -> None:
++    url = URL("http://example.com/?ключ=знач")
++    assert url.has_query_param("ключ") is True
++    assert url.has_query_param("знач") is False
++
++
++def test_is_multi_query_param_multiple() -> None:
++    url = URL("http://example.com/?a=1&a=2")
++    assert url.is_multi_query_param("a") is True
++
++
++def test_is_multi_query_param_single() -> None:
++    url = URL("http://example.com/?a=1&b=2")
++    assert url.is_multi_query_param("a") is False
++    assert url.is_multi_query_param("b") is False
++
++
++def test_is_multi_query_param_no_query() -> None:
++    url = URL("http://example.com/")
++    assert url.is_multi_query_param("a") is False
++
++
++def test_is_multi_query_param_missing() -> None:
++    url = URL("http://example.com/?a=1&b=2")
++    assert url.is_multi_query_param("c") is False
++
++
++def test_is_multi_query_param_three_values() -> None:
++    url = URL("http://example.com/?a=1&a=2&a=3")
++    assert url.is_multi_query_param("a") is True
++
++
++def test_is_multi_query_param_empty_value() -> None:
++    url = URL("http://example.com/?a=&a=")
++    assert url.is_multi_query_param("a") is True
++
++
++def test_has_and_is_multi_on_relative_url() -> None:
++    url = URL("path?x=1&x=2&y=3")
++    assert url.has_query_param("x") is True
++    assert url.has_query_param("y") is True
++    assert url.has_query_param("z") is False
++    assert url.is_multi_query_param("x") is True
++    assert url.is_multi_query_param("y") is False
+diff --git a/yarl/_url.py b/yarl/_url.py
+index 92b6655..c56b759 100644
+--- a/yarl/_url.py
++++ b/yarl/_url.py
+@@ -1350,6 +1350,57 @@ class URL:
+             )
+         )
+ 
++    def has_query_param(self, name: str) -> bool:
++        """Check whether a query parameter exists in the URL.
++
++        Returns ``True`` if the query parameter ``name`` is present in the
++        URL's query string, regardless of its value.
++
++        .. doctest::
++
++           >>> URL('http://example.com/?a=1&b=2').has_query_param('a')
++           True
++           >>> URL('http://example.com/?a=1&b=2').has_query_param('c')
++           False
++           >>> URL('http://example.com/').has_query_param('a')
++           False
++           >>> URL('http://example.com/?a=').has_query_param('a')
++           True
++           >>> URL('http://example.com/?a=1&a=2').has_query_param('a')
++           True
++
++        """
++        for k, _ in self._parsed_query:
++            if k == name:
++                return True
++        return False
++
++    def is_multi_query_param(self, name: str) -> bool:
++        """Check whether a query parameter has more than one value.
++
++        Returns ``True`` if the query parameter ``name`` appears more than
++        once in the URL's query string.
++
++        .. doctest::
++
++           >>> URL('http://example.com/?a=1&a=2').is_multi_query_param('a')
++           True
++           >>> URL('http://example.com/?a=1&b=2').is_multi_query_param('a')
++           False
++           >>> URL('http://example.com/?a=1&b=2').is_multi_query_param('b')
++           False
++           >>> URL('http://example.com/').is_multi_query_param('a')
++           False
++
++        """
++        count = 0
++        for k, _ in self._parsed_query:
++            if k == name:
++                count += 1
++                if count > 1:
++                    return True
++        return False
++
+     def with_fragment(self, fragment: str | None) -> "URL":
+         """Return a new URL with fragment replaced.
+ 
