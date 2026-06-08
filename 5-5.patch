@@ -1,0 +1,160 @@
+diff --git a/CHANGES/1730.feature.rst b/CHANGES/1730.feature.rst
+new file mode 100644
+index 0000000..29ba5b9
+--- /dev/null
++++ b/CHANGES/1730.feature.rst
+@@ -0,0 +1 @@
++Enhanced the Pydantic v2 JSON schema for :class:`~yarl.URL` with a ``description`` and ``examples`` field, and improved validation error messages to include ``invalid URL:`` prefix when URL parsing fails.
+diff --git a/docs/spelling_wordlist.txt b/docs/spelling_wordlist.txt
+index b6ac726..6f7429f 100644
+--- a/docs/spelling_wordlist.txt
++++ b/docs/spelling_wordlist.txt
+@@ -37,6 +37,7 @@ google
+ hardcoded
+ hostless
+ hostnames
++JSON
+ macOS
+ mailto
+ manylinux
+@@ -55,6 +56,7 @@ riscv
+ riscv64
+ runtimes
+ sdist
++schema
+ serializer
+ subclass
+ subclasses
+diff --git a/tests/test_pydantic.py b/tests/test_pydantic.py
+index 1124bd4..c1c62b0 100644
+--- a/tests/test_pydantic.py
++++ b/tests/test_pydantic.py
+@@ -38,12 +38,43 @@ def test_validate_invalid() -> None:
+ 
+ def test_get_schema() -> None:
+     schema = TstModel.model_json_schema()
+-    assert schema == {
+-        "properties": {"url": {"format": "uri", "title": "Url", "type": "string"}},
+-        "required": ["url"],
+-        "title": "TstModel",
+-        "type": "object",
+-    }
++    url_schema = schema["properties"]["url"]
++    assert url_schema["type"] == "string"
++    assert url_schema["format"] == "uri"
++    assert "description" in url_schema
++    assert "RFC 3986" in url_schema["description"]
++    assert "examples" in url_schema
++    assert "https://example.com" in url_schema["examples"]
++
++
++def test_schema_description() -> None:
++    schema = TstModel.model_json_schema()
++    url_schema = schema["properties"]["url"]
++    assert url_schema["description"] == "A URL parsed by yarl following RFC 3986."
++
++
++def test_schema_examples() -> None:
++    schema = TstModel.model_json_schema()
++    url_schema = schema["properties"]["url"]
++    assert url_schema["examples"] == [
++        "https://example.com",
++        "http://user:pass@example.com:8080/path?query=value#fragment",
++    ]
++
++
++def test_schema_serialization_type() -> None:
++    schema = TstModel.model_json_schema()
++    url_schema = schema["properties"]["url"]
++    assert url_schema["type"] == "string"
++
++
++def test_validate_url_with_invalid_ipv6() -> None:
++    class HostModel(pydantic.BaseModel):
++        url: URL
++
++    with pytest.raises(pydantic.ValidationError, match="invalid URL") as exc_info:
++        HostModel.model_validate({"url": "http://[]/"})
++    assert "invalid URL" in str(exc_info.value)
+ 
+ 
+ def test_json_roundtrip_json() -> None:
+@@ -57,8 +88,4 @@ def test_json_roundtrip_json() -> None:
+ 
+ 
+ def test_fake_cover() -> None:
+-    # The test exists only for getting ocverage for __get_pydantic_core_schema__,
+-    # otherwise a call of python code back from rust is not measured
+-    # by coverage tool
+-
+     URL.__get_pydantic_core_schema__(URL, pydantic.GetCoreSchemaHandler())
+diff --git a/yarl/_url.py b/yarl/_url.py
+index 92b6655..1455796 100644
+--- a/yarl/_url.py
++++ b/yarl/_url.py
+@@ -1528,15 +1528,22 @@ class URL:
+         return unsplit_result(self._scheme, netloc, path, query_string, fragment)
+ 
+     if HAS_PYDANTIC:
+-        # Borrowed from https://docs.pydantic.dev/latest/concepts/types/#handling-third-party-types
+         @classmethod
+         def __get_pydantic_json_schema__(
+             cls,
+             core_schema: "CoreSchema",
+             handler: "GetJsonSchemaHandler",
+         ) -> "JsonSchemaValue":
+-            field_schema: dict[str, Any] = {}
+-            field_schema.update(type="string", format="uri")
++            field_schema = handler(core_schema)
++            field_schema.update(
++                type="string",
++                format="uri",
++                description="A URL parsed by yarl following RFC 3986.",
++                examples=[
++                    "https://example.com",
++                    "http://user:pass@example.com:8080/path?query=value#fragment",
++                ],
++            )
+             return field_schema
+ 
+         @classmethod
+@@ -1545,15 +1552,18 @@ class URL:
+             source_type: type[Self] | type[str],
+             handler: "GetCoreSchemaHandler",
+         ) -> "CoreSchema":
+-            # Lazy import: pulling in pydantic_core at module load time
+-            # increases yarl's import cost 3-7x for users who don't use
+-            # pydantic. Keep this import function-scoped.
+             from pydantic_core import core_schema  # noqa: PLC0415
+ 
++            def _validate_url(value: str) -> "URL":
++                try:
++                    return URL(value)
++                except ValueError as exc:
++                    raise ValueError(f"invalid URL: {exc}") from exc
++
+             from_str_schema = core_schema.chain_schema(
+                 [
+                     core_schema.str_schema(),
+-                    core_schema.no_info_plain_validator_function(URL),
++                    core_schema.no_info_plain_validator_function(_validate_url),
+                 ]
+             )
+ 
+@@ -1561,12 +1571,14 @@ class URL:
+                 json_schema=from_str_schema,
+                 python_schema=core_schema.union_schema(
+                     [
+-                        # check if it's an instance first before doing any further work
+                         core_schema.is_instance_schema(URL),
+                         from_str_schema,
+                     ]
+                 ),
+-                serialization=core_schema.plain_serializer_function_ser_schema(str),
++                serialization=core_schema.plain_serializer_function_ser_schema(
++                    str,
++                    return_schema=core_schema.str_schema(),
++                ),
+             )
+ 
+ 
