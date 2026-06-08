@@ -1,0 +1,141 @@
+diff --git a/CHANGES/2000.feature.rst b/CHANGES/2000.feature.rst
+new file mode 100644
+index 0000000..5be5eb8
+--- /dev/null
++++ b/CHANGES/2000.feature.rst
+@@ -0,0 +1,2 @@
++Added ``URL.has_query_param()``, ``URL.get_query_param()``, and ``URL.get_all_query_params()`` to check and get query parameters without explicitly instantiating a ``MultiDict``.
++-- by :user:`github-handle`
+diff --git a/docs/api.rst b/docs/api.rst
+index 704befb..862b875 100644
+--- a/docs/api.rst
++++ b/docs/api.rst
+@@ -852,6 +852,36 @@ section generates a new :class:`URL` instance.
+       Support subclasses of :class:`int` (except :class:`bool`) and :class:`float`
+       as a query parameter value.
+ 
++.. method:: URL.has_query_param(name)
++
++   Check if a query parameter exists in the URL.
++
++   :param str name: Query parameter name to check.
++   :returns: ``True`` if the query parameter exists, ``False`` otherwise.
++   :rtype: bool
++
++   .. versionadded:: 2.0
++
++.. method:: URL.get_query_param(name, default=None)
++
++   Get the first value of a query parameter.
++
++   :param str name: Query parameter name.
++   :param default: Default value to return if the query parameter does not exist.
++   :returns: The first value of the query parameter, or the default value.
++
++   .. versionadded:: 2.0
++
++.. method:: URL.get_all_query_params(name)
++
++   Get all values of a query parameter.
++
++   :param str name: Query parameter name.
++   :returns: A tuple containing all values of the query parameter.
++   :rtype: tuple
++
++   .. versionadded:: 2.0
++
+ .. method:: URL.without_query_params(*query_params)
+ 
+    Return a new URL whose *query* part does not contain specified ``query_params``.
+diff --git a/tests/test_query_param_helpers.py b/tests/test_query_param_helpers.py
+new file mode 100644
+index 0000000..5ba6e8f
+--- /dev/null
++++ b/tests/test_query_param_helpers.py
+@@ -0,0 +1,42 @@
++from typing import Any
++import pytest
++from yarl import URL
++
++def test_has_query_param() -> None:
++    url = URL("http://example.com?a=1&b=2&a=3")
++    assert url.has_query_param("a") is True
++    assert url.has_query_param("b") is True
++    assert url.has_query_param("c") is False
++
++    url_empty = URL("http://example.com")
++    assert url_empty.has_query_param("a") is False
++
++    with pytest.raises(TypeError, match="Query parameter name must be a string"):
++        url.has_query_param(123)  # type: ignore[arg-type]
++
++
++def test_get_query_param() -> None:
++    url = URL("http://example.com?a=1&b=2&a=3")
++    assert url.get_query_param("a") == "1"
++    assert url.get_query_param("b") == "2"
++    assert url.get_query_param("c") is None
++    assert url.get_query_param("c", default="default_value") == "default_value"
++
++    url_empty = URL("http://example.com")
++    assert url_empty.get_query_param("a") is None
++
++    with pytest.raises(TypeError, match="Query parameter name must be a string"):
++        url.get_query_param(123)  # type: ignore[arg-type]
++
++
++def test_get_all_query_params() -> None:
++    url = URL("http://example.com?a=1&b=2&a=3")
++    assert url.get_all_query_params("a") == ("1", "3")
++    assert url.get_all_query_params("b") == ("2",)
++    assert url.get_all_query_params("c") == ()
++
++    url_empty = URL("http://example.com")
++    assert url_empty.get_all_query_params("a") == ()
++
++    with pytest.raises(TypeError, match="Query parameter name must be a string"):
++        url.get_all_query_params(123)  # type: ignore[arg-type]
+diff --git a/yarl/_url.py b/yarl/_url.py
+index 92b6655..5915f13 100644
+--- a/yarl/_url.py
++++ b/yarl/_url.py
+@@ -1337,6 +1337,39 @@ class URL:
+             self._scheme, self._netloc, self._path, query, self._fragment
+         )
+ 
++    def has_query_param(self, name: str) -> bool:
++        """Check if a query parameter exists in the URL."""
++        if not isinstance(name, str):
++            raise TypeError("Query parameter name must be a string")
++        return any(k == name for k, _ in self._parsed_query)
++
++    @overload
++    def get_query_param(self, name: str) -> str | None: ...
++
++    @overload
++    def get_query_param(self, name: str, default: _T) -> str | _T: ...
++
++    def get_query_param(self, name: str, default: Any = None) -> Any:
++        """Get the first value of a query parameter.
++        
++        Returns the default value if the parameter does not exist.
++        """
++        if not isinstance(name, str):
++            raise TypeError("Query parameter name must be a string")
++        for k, v in self._parsed_query:
++            if k == name:
++                return v
++        return default
++
++    def get_all_query_params(self, name: str) -> tuple[str, ...]:
++        """Get all values of a query parameter.
++        
++        Returns an empty tuple if the parameter does not exist.
++        """
++        if not isinstance(name, str):
++            raise TypeError("Query parameter name must be a string")
++        return tuple(v for k, v in self._parsed_query if k == name)
++
+     def without_query_params(self, *query_params: str) -> "URL":
+         """Remove some keys from query part and return new URL."""
+         params_to_remove = set(query_params) & self.query.keys()
