@@ -852,6 +852,36 @@ section generates a new :class:`URL` instance.
       Support subclasses of :class:`int` (except :class:`bool`) and :class:`float`
       as a query parameter value.
 
+.. method:: URL.has_query_param(name)
+
+   Check if a query parameter exists in the URL.
+
+   :param str name: Query parameter name to check.
+   :returns: ``True`` if the query parameter exists, ``False`` otherwise.
+   :rtype: bool
+
+   .. versionadded:: 2.0
+
+.. method:: URL.get_query_param(name, default=None)
+
+   Get the first value of a query parameter.
+
+   :param str name: Query parameter name.
+   :param default: Default value to return if the query parameter does not exist.
+   :returns: The first value of the query parameter, or the default value.
+
+   .. versionadded:: 2.0
+
+.. method:: URL.get_all_query_params(name)
+
+   Get all values of a query parameter.
+
+   :param str name: Query parameter name.
+   :returns: A tuple containing all values of the query parameter.
+   :rtype: tuple
+
+   .. versionadded:: 2.0
+
 .. method:: URL.without_query_params(*query_params)
 
    Return a new URL whose *query* part does not contain specified ``query_params``.

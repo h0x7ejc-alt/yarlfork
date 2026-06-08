@@ -1337,6 +1337,39 @@ class URL:
             self._scheme, self._netloc, self._path, query, self._fragment
         )
 
+    def has_query_param(self, name: str) -> bool:
+        """Check if a query parameter exists in the URL."""
+        if not isinstance(name, str):
+            raise TypeError("Query parameter name must be a string")
+        return any(k == name for k, _ in self._parsed_query)
+
+    @overload
+    def get_query_param(self, name: str) -> str | None: ...
+
+    @overload
+    def get_query_param(self, name: str, default: _T) -> str | _T: ...
+
+    def get_query_param(self, name: str, default: Any = None) -> Any:
+        """Get the first value of a query parameter.
+        
+        Returns the default value if the parameter does not exist.
+        """
+        if not isinstance(name, str):
+            raise TypeError("Query parameter name must be a string")
+        for k, v in self._parsed_query:
+            if k == name:
+                return v
+        return default
+
+    def get_all_query_params(self, name: str) -> tuple[str, ...]:
+        """Get all values of a query parameter.
+        
+        Returns an empty tuple if the parameter does not exist.
+        """
+        if not isinstance(name, str):
+            raise TypeError("Query parameter name must be a string")
+        return tuple(v for k, v in self._parsed_query if k == name)
+
     def without_query_params(self, *query_params: str) -> "URL":
         """Remove some keys from query part and return new URL."""
         params_to_remove = set(query_params) & self.query.keys()

@@ -1,0 +1,2 @@
+Added ``URL.has_query_param()``, ``URL.get_query_param()``, and ``URL.get_all_query_params()`` to check and get query parameters without explicitly instantiating a ``MultiDict``.
+-- by :user:`github-handle`
