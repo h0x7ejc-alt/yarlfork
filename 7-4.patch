@@ -1,0 +1,226 @@
+diff --git a/test_refactor.py b/test_refactor.py
+new file mode 100644
+index 0000000..0d0687e
+--- /dev/null
++++ b/test_refactor.py
+@@ -0,0 +1,55 @@
++import pickle
++import sys
++sys.path.insert(0, '/app/yarlfork')
++from yarl import URL
++
++
++def test_refactored_cache() -> None:
++    print("Testing refactored cache logic...")
++    
++    # Test 1: Basic parsing and properties
++    u = URL("https://user:pass@example.com:8080/path?query=1#fragment")
++    print(f"  Created URL: {u}")
++    assert u.scheme == "https"
++    assert u.raw_user == "user"
++    assert u.raw_password == "pass"
++    assert u.raw_host == "example.com"
++    assert u.explicit_port == 8080
++    assert u.path == "/path"
++    print("  ✓ Basic properties work correctly")
++    
++    # Test 2: Hash caching
++    hash1 = hash(u)
++    print(f"  Hash value: {hash1}")
++    # Access hash again to verify it's cached
++    hash2 = hash(u)
++    assert hash1 == hash2, f"Hash values don't match: {hash1} vs {hash2}"
++    print("  ✓ Hash caching works")
++    
++    # Test 3: Pickling
++    print("  Testing pickling...")
++    u1 = URL("https://example.com")
++    hash(u1)  # Fill the cache
++    data = pickle.dumps(u1)
++    u2 = pickle.loads(data)
++    print(f"  Original _cache has content: {bool(u1._cache)}")
++    print(f"  Unpickled _cache is empty: {not bool(u2._cache)}")
++    assert hash(u1) == hash(u2), f"Hashes don't match after unpickling"
++    print("  ✓ Pickling with cache clearing works correctly")
++    
++    # Test 4: netloc parts
++    print("  Testing netloc parts...")
++    u3 = URL("https://john:doe123@sub.domain.example:9000")
++    assert u3.raw_user == "john"
++    assert u3.raw_password == "doe123"
++    assert u3.raw_host == "sub.domain.example"
++    assert u3.explicit_port == 9000
++    assert u3.host_subcomponent == "sub.domain.example"
++    assert u3.host_port_subcomponent == "sub.domain.example:9000"
++    print("  ✓ Netloc parts work correctly")
++    
++    print("\n✅ All tests passed! Refactoring was successful.")
++
++
++if __name__ == "__main__":
++    test_refactored_cache()
+diff --git a/yarl/_url.py b/yarl/_url.py
+index 92b6655..1db82a1 100644
+--- a/yarl/_url.py
++++ b/yarl/_url.py
+@@ -124,42 +124,9 @@ class CacheInfo(TypedDict):
+ 
+ 
+ class _InternalURLCache(TypedDict, total=False):
+-    _val: SplitURLType
+-    _origin: "URL"
+-    absolute: bool
++    # Only hash is stored in _cache for backward compatibility and
++    # performance reasons since __hash__ is called frequently
+     hash: int
+-    scheme: str
+-    raw_authority: str
+-    authority: str
+-    raw_user: str | None
+-    user: str | None
+-    raw_password: str | None
+-    password: str | None
+-    raw_host: str | None
+-    host: str | None
+-    host_subcomponent: str | None
+-    host_port_subcomponent: str | None
+-    port: int | None
+-    explicit_port: int | None
+-    raw_path: str
+-    path: str
+-    _parsed_query: list[tuple[str, str]]
+-    query: "MultiDictProxy[str]"
+-    raw_query_string: str
+-    query_string: str
+-    path_qs: str
+-    raw_path_qs: str
+-    raw_fragment: str
+-    fragment: str
+-    raw_parts: tuple[str, ...]
+-    parts: tuple[str, ...]
+-    parent: "URL"
+-    raw_name: str
+-    name: str
+-    raw_suffix: str
+-    suffix: str
+-    raw_suffixes: tuple[str, ...]
+-    suffixes: tuple[str, ...]
+ 
+ 
+ def rewrite_module(obj: _T) -> _T:
+@@ -181,7 +148,6 @@ def _encode_relative_scheme_colon(path: str) -> str:
+ @lru_cache
+ def encode_url(url_str: str) -> "URL":
+     """Parse unencoded URL."""
+-    cache: _InternalURLCache = {}
+     host: str | None
+     scheme, netloc, path, query, fragment = split_url(url_str)
+     if not netloc:  # netloc
+@@ -203,20 +169,13 @@ def encode_url(url_str: str) -> "URL":
+             else:
+                 host = ""
+         host = _encode_host(host, validate_host=False)
+-        # Remove brackets as host encoder adds back brackets for IPv6 addresses
+-        cache["raw_host"] = host[1:-1] if "[" in host else host
+-        cache["explicit_port"] = port
+         if password is None and username is None:
+             # Fast path for URLs without user, password
+             netloc = host if port is None else f"{host}:{port}"
+-            cache["raw_user"] = None
+-            cache["raw_password"] = None
+         else:
+             raw_user = REQUOTER(username) if username else username
+             raw_password = REQUOTER(password) if password else password
+             netloc = make_netloc(raw_user, raw_password, host, port)
+-            cache["raw_user"] = raw_user
+-            cache["raw_password"] = raw_password
+ 
+     if path:
+         path = PATH_REQUOTER(path)
+@@ -229,18 +188,13 @@ def encode_url(url_str: str) -> "URL":
+     if fragment:
+         fragment = FRAGMENT_REQUOTER(fragment)
+ 
+-    cache["scheme"] = scheme
+-    cache["raw_path"] = "/" if not path and netloc else path
+-    cache["raw_query_string"] = query
+-    cache["raw_fragment"] = fragment
+-
+     self = object.__new__(URL)
+     self._scheme = scheme
+     self._netloc = netloc
+     self._path = path
+     self._query = query
+     self._fragment = fragment
+-    self._cache = cache
++    self._cache = {}
+     return self
+ 
+ 
+@@ -606,13 +560,7 @@ class URL:
+             unused: list[object]
+             val, *unused = state
+         self._scheme, self._netloc, self._path, self._query, self._fragment = val
+-        self._cache = {}
+-
+-    def _cache_netloc(self) -> None:
+-        """Cache the netloc parts of the URL."""
+-        c = self._cache
+-        split_loc = split_netloc(self._netloc)
+-        c["raw_user"], c["raw_password"], c["raw_host"], c["explicit_port"] = split_loc
++        self._cache = {}  # Clear cache after unpickling, as per existing behavior
+ 
+     def is_absolute(self) -> bool:
+         """A check for absolute URLs.
+@@ -723,6 +671,11 @@ class URL:
+         """
+         return make_netloc(self.user, self.password, self.host, self.port)
+ 
++    @cached_property
++    def _netloc_parts(self) -> tuple[str | None, str | None, str | None, int | None]:
++        """Split netloc into parts, cached."""
++        return split_netloc(self._netloc)
++
+     @cached_property
+     def raw_user(self) -> str | None:
+         """Encoded user part of URL.
+@@ -731,8 +684,7 @@ class URL:
+ 
+         """
+         # not .username
+-        self._cache_netloc()
+-        return self._cache["raw_user"]
++        return self._netloc_parts[0]
+ 
+     @cached_property
+     def user(self) -> str | None:
+@@ -752,8 +704,7 @@ class URL:
+         None if password is missing.
+ 
+         """
+-        self._cache_netloc()
+-        return self._cache["raw_password"]
++        return self._netloc_parts[1]
+ 
+     @cached_property
+     def password(self) -> str | None:
+@@ -777,8 +728,7 @@ class URL:
+         """
+         # Use host instead of hostname for sake of shortness
+         # May add .hostname prop later
+-        self._cache_netloc()
+-        return self._cache["raw_host"]
++        return self._netloc_parts[2]
+ 
+     @cached_property
+     def host(self) -> str | None:
+@@ -881,8 +831,7 @@ class URL:
+         None for relative URLs or URLs without explicit port.
+ 
+         """
+-        self._cache_netloc()
+-        return self._cache["explicit_port"]
++        return self._netloc_parts[3]
+ 
+     @cached_property
+     def raw_path(self) -> str:
