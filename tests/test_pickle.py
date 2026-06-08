@@ -61,6 +61,24 @@ def test_pickle_does_not_pollute_cache() -> None:
     assert URL("").scheme == ""
 
 
+def test_unpickled_url_rebuilds_cache_from_parts() -> None:
+    u1 = URL("http://user:password@example.com:80/path?a=b#frag")
+    v = pickle.dumps(u1)
+    u2 = pickle.loads(v)
+
+    assert not u2._cache
+
+    assert u2.raw_host == "example.com"
+    assert u2._cache["raw_user"] == "user"
+    assert u2._cache["raw_password"] == "password"
+    assert u2._cache["raw_host"] == "example.com"
+    assert u2._cache["explicit_port"] == 80
+    assert "hash" not in u2._cache
+
+    assert hash(u2) == hash(u1)
+    assert u2._cache["hash"] == hash(u1)
+
+
 def test_pickle_legacy_splitresult_state() -> None:
     """Pickles produced by older yarl releases embedded a ``SplitResult``.
 

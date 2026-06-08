@@ -1,0 +1,377 @@
+diff --git a/tests/test_pickle.py b/tests/test_pickle.py
+index 6939664..c9b356c 100644
+--- a/tests/test_pickle.py
++++ b/tests/test_pickle.py
+@@ -61,6 +61,24 @@ def test_pickle_does_not_pollute_cache() -> None:
+     assert URL("").scheme == ""
+ 
+ 
++def test_unpickled_url_rebuilds_cache_from_parts() -> None:
++    u1 = URL("http://user:password@example.com:80/path?a=b#frag")
++    v = pickle.dumps(u1)
++    u2 = pickle.loads(v)
++
++    assert not u2._cache
++
++    assert u2.raw_host == "example.com"
++    assert u2._cache["raw_user"] == "user"
++    assert u2._cache["raw_password"] == "password"
++    assert u2._cache["raw_host"] == "example.com"
++    assert u2._cache["explicit_port"] == 80
++    assert "hash" not in u2._cache
++
++    assert hash(u2) == hash(u1)
++    assert u2._cache["hash"] == hash(u1)
++
++
+ def test_pickle_legacy_splitresult_state() -> None:
+     """Pickles produced by older yarl releases embedded a ``SplitResult``.
+ 
+diff --git a/yarl/_url.py b/yarl/_url.py
+index 92b6655..a07f2d2 100644
+--- a/yarl/_url.py
++++ b/yarl/_url.py
+@@ -178,6 +178,71 @@ def _encode_relative_scheme_colon(path: str) -> str:
+     return path[:colon_pos] + "%3A" + path[colon_pos + 1 :]
+ 
+ 
++def _cache_netloc_parts(
++    cache: _InternalURLCache,
++    raw_user: str | None,
++    raw_password: str | None,
++    raw_host: str | None,
++    explicit_port: int | None,
++) -> None:
++    cache["raw_user"] = raw_user
++    cache["raw_password"] = raw_password
++    cache["raw_host"] = raw_host
++    cache["explicit_port"] = explicit_port
++
++
++def _cache_url_parts(
++    cache: _InternalURLCache,
++    scheme: str,
++    raw_path: str,
++    raw_query_string: str,
++    raw_fragment: str,
++) -> None:
++    cache["scheme"] = scheme
++    cache["raw_path"] = raw_path
++    cache["raw_query_string"] = raw_query_string
++    cache["raw_fragment"] = raw_fragment
++
++
++def _init_url(
++    self: "URL",
++    scheme: str,
++    netloc: str,
++    path: str,
++    query: str,
++    fragment: str,
++    *,
++    cache: _InternalURLCache | None = None,
++) -> "URL":
++    self._scheme = scheme
++    self._netloc = netloc
++    self._path = path
++    self._query = query
++    self._fragment = fragment
++    self._cache = {} if cache is None else cache
++    return self
++
++
++def _new_url(
++    scheme: str,
++    netloc: str,
++    path: str,
++    query: str,
++    fragment: str,
++    *,
++    cache: _InternalURLCache | None = None,
++) -> "URL":
++    return _init_url(
++        object.__new__(URL),
++        scheme,
++        netloc,
++        path,
++        query,
++        fragment,
++        cache=cache,
++    )
++
++
+ @lru_cache
+ def encode_url(url_str: str) -> "URL":
+     """Parse unencoded URL."""
+@@ -204,19 +269,16 @@ def encode_url(url_str: str) -> "URL":
+                 host = ""
+         host = _encode_host(host, validate_host=False)
+         # Remove brackets as host encoder adds back brackets for IPv6 addresses
+-        cache["raw_host"] = host[1:-1] if "[" in host else host
+-        cache["explicit_port"] = port
++        raw_host = host[1:-1] if "[" in host else host
+         if password is None and username is None:
+             # Fast path for URLs without user, password
++            raw_user = raw_password = None
+             netloc = host if port is None else f"{host}:{port}"
+-            cache["raw_user"] = None
+-            cache["raw_password"] = None
+         else:
+             raw_user = REQUOTER(username) if username else username
+             raw_password = REQUOTER(password) if password else password
+             netloc = make_netloc(raw_user, raw_password, host, port)
+-            cache["raw_user"] = raw_user
+-            cache["raw_password"] = raw_password
++        _cache_netloc_parts(cache, raw_user, raw_password, raw_host, port)
+ 
+     if path:
+         path = PATH_REQUOTER(path)
+@@ -229,29 +291,20 @@ def encode_url(url_str: str) -> "URL":
+     if fragment:
+         fragment = FRAGMENT_REQUOTER(fragment)
+ 
+-    cache["scheme"] = scheme
+-    cache["raw_path"] = "/" if not path and netloc else path
+-    cache["raw_query_string"] = query
+-    cache["raw_fragment"] = fragment
+-
+-    self = object.__new__(URL)
+-    self._scheme = scheme
+-    self._netloc = netloc
+-    self._path = path
+-    self._query = query
+-    self._fragment = fragment
+-    self._cache = cache
+-    return self
++    _cache_url_parts(
++        cache,
++        scheme,
++        "/" if not path and netloc else path,
++        query,
++        fragment,
++    )
++    return _new_url(scheme, netloc, path, query, fragment, cache=cache)
+ 
+ 
+ @lru_cache
+ def pre_encoded_url(url_str: str) -> "URL":
+     """Parse pre-encoded URL."""
+-    self = object.__new__(URL)
+-    val = split_url(url_str)
+-    self._scheme, self._netloc, self._path, self._query, self._fragment = val
+-    self._cache = {}
+-    return self
++    return _new_url(*split_url(url_str))
+ 
+ 
+ @lru_cache
+@@ -267,38 +320,25 @@ def build_pre_encoded_url(
+     fragment: str,
+ ) -> "URL":
+     """Build a pre-encoded URL from parts."""
+-    self = object.__new__(URL)
+-    self._scheme = scheme
+     if authority:
+-        self._netloc = authority
++        netloc = authority
+     elif host:
+         if port is not None:
+             port = None if port == DEFAULT_PORTS.get(scheme) else port
+         if user is None and password is None:
+-            self._netloc = host if port is None else f"{host}:{port}"
++            netloc = host if port is None else f"{host}:{port}"
+         else:
+-            self._netloc = make_netloc(user, password, host, port)
++            netloc = make_netloc(user, password, host, port)
+     else:
+-        self._netloc = ""
+-    self._path = path
+-    self._query = query_string
+-    self._fragment = fragment
+-    self._cache = {}
+-    return self
++        netloc = ""
++    return _new_url(scheme, netloc, path, query_string, fragment)
+ 
+ 
+ def from_parts_uncached(
+     scheme: str, netloc: str, path: str, query: str, fragment: str
+ ) -> "URL":
+     """Create a new URL from parts."""
+-    self = object.__new__(URL)
+-    self._scheme = scheme
+-    self._netloc = netloc
+-    self._path = path
+-    self._query = query
+-    self._fragment = fragment
+-    self._cache = {}
+-    return self
++    return _new_url(scheme, netloc, path, query, fragment)
+ 
+ 
+ from_parts = lru_cache(from_parts_uncached)
+@@ -407,10 +447,7 @@ class URL:
+             # Special case for UNDEFINED since it might be unpickling and we do
+             # not want to cache as the `__set_state__` call would mutate the URL
+             # object in the `pre_encoded_url` or `encoded_url` caches.
+-            self = object.__new__(URL)
+-            self._scheme = self._netloc = self._path = self._query = self._fragment = ""
+-            self._cache = {}
+-            return self
++            return _new_url("", "", "", "", "")
+         raise TypeError("Constructor parameter should be str")
+ 
+     @classmethod
+@@ -470,27 +507,24 @@ class URL:
+                 fragment,
+             )
+ 
+-        self = object.__new__(URL)
+-        self._scheme = scheme
++        netloc = ""
+         _host: str | None = None
+         if authority:
+             user, password, _host, port = split_netloc(authority)
+             _host = _encode_host(_host, validate_host=False) if _host else ""
+         elif host:
+             _host = _encode_host(host, validate_host=True)
+-        else:
+-            self._netloc = ""
+ 
+         if _host is not None:
+             if port is not None:
+                 port = None if port == DEFAULT_PORTS.get(scheme) else port
+             if user is None and password is None:
+-                self._netloc = _host if port is None else f"{_host}:{port}"
++                netloc = _host if port is None else f"{_host}:{port}"
+             else:
+-                self._netloc = make_netloc(user, password, _host, port, True)
++                netloc = make_netloc(user, password, _host, port, True)
+ 
+         path = PATH_QUOTER(path) if path else path
+-        if path and self._netloc:
++        if path and netloc:
+             if "." in path:
+                 path = normalize_path(path)
+             if path[0] != "/":
+@@ -500,17 +534,29 @@ class URL:
+                 )
+                 raise ValueError(msg)
+ 
+-        self._path = path
+         if not query and query_string:
+             query_string = QUERY_QUOTER(query_string)
+-        self._query = query_string
+-        self._fragment = FRAGMENT_QUOTER(fragment) if fragment else fragment
+-        self._cache = {}
+-        return self
++        return _new_url(
++            scheme,
++            netloc,
++            path,
++            query_string,
++            FRAGMENT_QUOTER(fragment) if fragment else fragment,
++        )
+ 
+     def __init_subclass__(cls) -> NoReturn:
+         raise TypeError(f"Inheriting a class {cls!r} from URL is forbidden")
+ 
++    def _clear_cache(self) -> None:
++        self._cache = {}
++
++    def _set_parts(self, val: SplitURLType) -> None:
++        self._scheme, self._netloc, self._path, self._query, self._fragment = val
++        self._clear_cache()
++
++    def _path_for_comparison(self) -> str:
++        return "/" if not self._path and self._netloc else self._path
++
+     def __str__(self) -> str:
+         if not self._path and self._netloc and (self._query or self._fragment):
+             path = "/"
+@@ -537,21 +583,24 @@ class URL:
+         if type(other) is not URL:
+             return NotImplemented
+ 
+-        path1 = "/" if not self._path and self._netloc else self._path
+-        path2 = "/" if not other._path and other._netloc else other._path
+         return (
+             self._scheme == other._scheme
+             and self._netloc == other._netloc
+-            and path1 == path2
++            and self._path_for_comparison() == other._path_for_comparison()
+             and self._query == other._query
+             and self._fragment == other._fragment
+         )
+ 
+     def __hash__(self) -> int:
+         if (ret := self._cache.get("hash")) is None:
+-            path = "/" if not self._path and self._netloc else self._path
+             ret = self._cache["hash"] = hash(
+-                (self._scheme, self._netloc, path, self._query, self._fragment)
++                (
++                    self._scheme,
++                    self._netloc,
++                    self._path_for_comparison(),
++                    self._query,
++                    self._fragment,
++                )
+             )
+         return ret
+ 
+@@ -605,14 +654,12 @@ class URL:
+         else:
+             unused: list[object]
+             val, *unused = state
+-        self._scheme, self._netloc, self._path, self._query, self._fragment = val
+-        self._cache = {}
++        self._set_parts(val)
+ 
+-    def _cache_netloc(self) -> None:
+-        """Cache the netloc parts of the URL."""
+-        c = self._cache
+-        split_loc = split_netloc(self._netloc)
+-        c["raw_user"], c["raw_password"], c["raw_host"], c["explicit_port"] = split_loc
++    def _ensure_netloc_cache(self) -> None:
++        if "raw_user" in self._cache:
++            return
++        _cache_netloc_parts(self._cache, *split_netloc(self._netloc))
+ 
+     def is_absolute(self) -> bool:
+         """A check for absolute URLs.
+@@ -731,7 +778,7 @@ class URL:
+ 
+         """
+         # not .username
+-        self._cache_netloc()
++        self._ensure_netloc_cache()
+         return self._cache["raw_user"]
+ 
+     @cached_property
+@@ -752,7 +799,7 @@ class URL:
+         None if password is missing.
+ 
+         """
+-        self._cache_netloc()
++        self._ensure_netloc_cache()
+         return self._cache["raw_password"]
+ 
+     @cached_property
+@@ -777,7 +824,7 @@ class URL:
+         """
+         # Use host instead of hostname for sake of shortness
+         # May add .hostname prop later
+-        self._cache_netloc()
++        self._ensure_netloc_cache()
+         return self._cache["raw_host"]
+ 
+     @cached_property
+@@ -881,7 +928,7 @@ class URL:
+         None for relative URLs or URLs without explicit port.
+ 
+         """
+-        self._cache_netloc()
++        self._ensure_netloc_cache()
+         return self._cache["explicit_port"]
+ 
+     @cached_property
