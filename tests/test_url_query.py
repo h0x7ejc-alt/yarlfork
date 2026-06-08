@@ -213,6 +213,51 @@ def test_skip_dropping_query_params(
     assert new_url is url
 
 
+def test_has_query_param_single_value() -> None:
+    url = URL("http://example.com?a=1&b=2")
+    assert url.has_query_param("a") == 1
+    assert url.has_query_param("b") == 1
+
+
+def test_has_query_param_multiple_values() -> None:
+    url = URL("http://example.com?a=1&b=2&a=3")
+    assert url.has_query_param("a") == 2
+    assert url.has_query_param("b") == 1
+
+
+def test_has_query_param_missing_key() -> None:
+    url = URL("http://example.com?a=1&b=2")
+    assert url.has_query_param("c") == 0
+
+
+def test_has_query_param_empty_query() -> None:
+    url = URL("http://example.com")
+    assert url.has_query_param("a") == 0
+
+
+def test_has_query_param_empty_value() -> None:
+    url = URL("http://example.com?a=")
+    assert url.has_query_param("a") == 1
+
+
+def test_has_query_param_non_ascii_key() -> None:
+    url = URL("http://example.com?ключ=знач")
+    assert url.has_query_param("ключ") == 1
+    assert url.has_query_param("other") == 0
+
+
+def test_has_query_param_with_spaces() -> None:
+    url = URL("http://example.com?a+b=c+d")
+    assert url.has_query_param("a b") == 1
+    assert url.has_query_param("a") == 0
+
+
+def test_has_query_param_many_duplicates() -> None:
+    url = URL("http://example.com?c=e&c=f&c=g&c=h")
+    assert url.has_query_param("c") == 4
+    assert url.has_query_param("e") == 0
+
+
 def test_update_query_rejects_bytes() -> None:
     url = URL("http://example.com")
     with pytest.raises(TypeError):

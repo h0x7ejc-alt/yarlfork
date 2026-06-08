@@ -1,0 +1,3 @@
+Added :meth:`URL.has_query_param` method to check for query key existence
+and count duplicate keys without constructing a ``MultiDictProxy``
+-- by :user:`github-handle`.

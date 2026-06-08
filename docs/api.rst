@@ -852,6 +852,29 @@ section generates a new :class:`URL` instance.
       Support subclasses of :class:`int` (except :class:`bool`) and :class:`float`
       as a query parameter value.
 
+.. method:: URL.has_query_param(key)
+
+   Return the number of values for a given query key.
+
+   Returns ``0`` if the key is not present in the query part.
+   Returns the count of values if the key is present, which allows
+   checking both existence and whether a key has multiple values
+   (duplicate keys).
+
+   This method does not construct a :class:`~multidict.MultiDictProxy`,
+   making it more efficient when only existence or count is needed.
+
+   .. doctest::
+
+      >>> URL('http://example.com/path?a=1&b=2').has_query_param('a')
+      1
+      >>> URL('http://example.com/path?a=1&b=2&a=3').has_query_param('a')
+      2
+      >>> URL('http://example.com/path?a=1&b=2').has_query_param('c')
+      0
+
+   .. versionadded:: 1.12.0
+
 .. method:: URL.without_query_params(*query_params)
 
    Return a new URL whose *query* part does not contain specified ``query_params``.

@@ -1337,6 +1337,24 @@ class URL:
             self._scheme, self._netloc, self._path, query, self._fragment
         )
 
+    def has_query_param(self, key: str) -> int:
+        """Return the number of values for a given query key.
+
+        Returns 0 if the key is not present in the query part.
+        Returns the count of values if the key is present, which
+        allows checking both existence and whether a key has
+        multiple values (duplicate keys).
+
+        This method does not construct a MultiDictProxy, making it
+        more efficient when only existence or count is needed.
+
+        """
+        count = 0
+        for name, _ in self._parsed_query:
+            if name == key:
+                count += 1
+        return count
+
     def without_query_params(self, *query_params: str) -> "URL":
         """Remove some keys from query part and return new URL."""
         params_to_remove = set(query_params) & self.query.keys()
