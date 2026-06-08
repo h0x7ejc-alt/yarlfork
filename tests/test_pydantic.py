@@ -38,12 +38,43 @@ def test_validate_invalid() -> None:
 
 def test_get_schema() -> None:
     schema = TstModel.model_json_schema()
-    assert schema == {
-        "properties": {"url": {"format": "uri", "title": "Url", "type": "string"}},
-        "required": ["url"],
-        "title": "TstModel",
-        "type": "object",
-    }
+    url_schema = schema["properties"]["url"]
+    assert url_schema["type"] == "string"
+    assert url_schema["format"] == "uri"
+    assert "description" in url_schema
+    assert "RFC 3986" in url_schema["description"]
+    assert "examples" in url_schema
+    assert "https://example.com" in url_schema["examples"]
+
+
+def test_schema_description() -> None:
+    schema = TstModel.model_json_schema()
+    url_schema = schema["properties"]["url"]
+    assert url_schema["description"] == "A URL parsed by yarl following RFC 3986."
+
+
+def test_schema_examples() -> None:
+    schema = TstModel.model_json_schema()
+    url_schema = schema["properties"]["url"]
+    assert url_schema["examples"] == [
+        "https://example.com",
+        "http://user:pass@example.com:8080/path?query=value#fragment",
+    ]
+
+
+def test_schema_serialization_type() -> None:
+    schema = TstModel.model_json_schema()
+    url_schema = schema["properties"]["url"]
+    assert url_schema["type"] == "string"
+
+
+def test_validate_url_with_invalid_ipv6() -> None:
+    class HostModel(pydantic.BaseModel):
+        url: URL
+
+    with pytest.raises(pydantic.ValidationError, match="invalid URL") as exc_info:
+        HostModel.model_validate({"url": "http://[]/"})
+    assert "invalid URL" in str(exc_info.value)
 
 
 def test_json_roundtrip_json() -> None:
@@ -57,8 +88,4 @@ def test_json_roundtrip_json() -> None:
 
 
 def test_fake_cover() -> None:
-    # The test exists only for getting ocverage for __get_pydantic_core_schema__,
-    # otherwise a call of python code back from rust is not measured
-    # by coverage tool
-
     URL.__get_pydantic_core_schema__(URL, pydantic.GetCoreSchemaHandler())

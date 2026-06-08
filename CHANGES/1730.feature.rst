@@ -1,0 +1,1 @@
+Enhanced the Pydantic v2 JSON schema for :class:`~yarl.URL` with a ``description`` and ``examples`` field, and improved validation error messages to include ``invalid URL:`` prefix when URL parsing fails.

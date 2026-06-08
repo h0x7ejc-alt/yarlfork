@@ -37,6 +37,7 @@ google
 hardcoded
 hostless
 hostnames
+JSON
 macOS
 mailto
 manylinux
@@ -55,6 +56,7 @@ riscv
 riscv64
 runtimes
 sdist
+schema
 serializer
 subclass
 subclasses

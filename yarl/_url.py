@@ -1528,15 +1528,22 @@ class URL:
         return unsplit_result(self._scheme, netloc, path, query_string, fragment)
 
     if HAS_PYDANTIC:
-        # Borrowed from https://docs.pydantic.dev/latest/concepts/types/#handling-third-party-types
         @classmethod
         def __get_pydantic_json_schema__(
             cls,
             core_schema: "CoreSchema",
             handler: "GetJsonSchemaHandler",
         ) -> "JsonSchemaValue":
-            field_schema: dict[str, Any] = {}
-            field_schema.update(type="string", format="uri")
+            field_schema = handler(core_schema)
+            field_schema.update(
+                type="string",
+                format="uri",
+                description="A URL parsed by yarl following RFC 3986.",
+                examples=[
+                    "https://example.com",
+                    "http://user:pass@example.com:8080/path?query=value#fragment",
+                ],
+            )
             return field_schema
 
         @classmethod
@@ -1545,15 +1552,18 @@ class URL:
             source_type: type[Self] | type[str],
             handler: "GetCoreSchemaHandler",
         ) -> "CoreSchema":
-            # Lazy import: pulling in pydantic_core at module load time
-            # increases yarl's import cost 3-7x for users who don't use
-            # pydantic. Keep this import function-scoped.
             from pydantic_core import core_schema  # noqa: PLC0415
+
+            def _validate_url(value: str) -> "URL":
+                try:
+                    return URL(value)
+                except ValueError as exc:
+                    raise ValueError(f"invalid URL: {exc}") from exc
 
             from_str_schema = core_schema.chain_schema(
                 [
                     core_schema.str_schema(),
-                    core_schema.no_info_plain_validator_function(URL),
+                    core_schema.no_info_plain_validator_function(_validate_url),
                 ]
             )
 
@@ -1561,12 +1571,14 @@ class URL:
                 json_schema=from_str_schema,
                 python_schema=core_schema.union_schema(
                     [
-                        # check if it's an instance first before doing any further work
                         core_schema.is_instance_schema(URL),
                         from_str_schema,
                     ]
                 ),
-                serialization=core_schema.plain_serializer_function_ser_schema(str),
+                serialization=core_schema.plain_serializer_function_ser_schema(
+                    str,
+                    return_schema=core_schema.str_schema(),
+                ),
             )
 
 
