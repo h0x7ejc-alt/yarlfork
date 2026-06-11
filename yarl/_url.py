@@ -180,7 +180,16 @@ def _encode_relative_scheme_colon(path: str) -> str:
 
 @lru_cache
 def encode_url(url_str: str) -> "URL":
-    """Parse unencoded URL."""
+    """Parse a user-provided URL string into an internal URL object.
+
+    The input may already contain percent-encoded characters; each
+    component is normalized via requoting so that any existing percent
+    encoding matches the yarl policy for that component.
+
+    Use this when the input comes from an external source (e.g. a
+    configuration file or a network message) and you do not know
+    whether it is already percent-encoded.
+    """
     cache: _InternalURLCache = {}
     host: str | None
     scheme, netloc, path, query, fragment = split_url(url_str)
@@ -219,12 +228,18 @@ def encode_url(url_str: str) -> "URL":
             cache["raw_password"] = raw_password
 
     if path:
+        # Use PATH_REQUOTER (requote=True) because the input URL string
+        # may already contain percent-encoded path segments.  Existing
+        # %XX tokens are normalized: safe chars (@:) decoded, protected
+        # chars (/+) kept encoded, everything else re-encoded.
         path = PATH_REQUOTER(path)
         if netloc and "." in path:
             path = normalize_path(path)
         elif not scheme and not netloc:
             path = _encode_relative_scheme_colon(path)
     if query:
+        # QUERY_REQUOTER protects structural chars (=+&;) so separator
+        # tokens survive the requote round-trip.
         query = QUERY_REQUOTER(query)
     if fragment:
         fragment = FRAGMENT_REQUOTER(fragment)
@@ -246,7 +261,13 @@ def encode_url(url_str: str) -> "URL":
 
 @lru_cache
 def pre_encoded_url(url_str: str) -> "URL":
-    """Parse pre-encoded URL."""
+    """Parse a URL string that is already percent-encoded.
+
+    No quoting or normalization is applied; the input is split into
+    components and stored as-is.  Use this when the input is known to
+    be already in the correct yarl encoding form (e.g. from a previous
+    ``str()`` or ``human_repr()`` call that was stored).
+    """
     self = object.__new__(URL)
     val = split_url(url_str)
     self._scheme, self._netloc, self._path, self._query, self._fragment = val
@@ -290,7 +311,11 @@ def build_pre_encoded_url(
 def from_parts_uncached(
     scheme: str, netloc: str, path: str, query: str, fragment: str
 ) -> "URL":
-    """Create a new URL from parts."""
+    """Create a new URL from parts.
+
+    All arguments must already be percent-encoded.  No quoting is
+    performed by this function.
+    """
     self = object.__new__(URL)
     self._scheme = scheme
     self._netloc = netloc
@@ -470,6 +495,10 @@ class URL:
                 fragment,
             )
 
+        # -- fresh-encoding path (encoded=False) --
+        # Each component is encoded with a *_QUOTER (requote=False) because
+        # the inputs are assumed to be raw, unencoded values.  ``%`` in the
+        # input is treated as a literal character and encoded to ``%25``.
         self = object.__new__(URL)
         self._scheme = scheme
         _host: str | None = None
@@ -512,6 +541,8 @@ class URL:
         raise TypeError(f"Inheriting a class {cls!r} from URL is forbidden")
 
     def __str__(self) -> str:
+        # Returns the percent-encoded "wire format".  For a
+        # human-readable representation use ``human_repr()`` instead.
         if not self._path and self._netloc and (self._query or self._fragment):
             path = "/"
         else:
@@ -1236,6 +1267,9 @@ class URL:
 
         """
         # N.B. doesn't cleanup query/fragment
+        # get_str_query() handles encoding internally:
+        # - raw str       → QUERY_QUOTER (whole-string quote)
+        # - Mapping/seq   → QUERY_PART_QUOTER (per-key/per-value quote)
         query = get_str_query(*args, **kwargs) or ""
         return from_parts_uncached(
             self._scheme, self._netloc, self._path, query, self._fragment
@@ -1260,8 +1294,8 @@ class URL:
         if not (new_query := get_str_query(*args, **kwargs)):
             return self
         if query := self._query:
-            # both strings are already encoded so we can use a simple
-            # string join
+            # Both strings are already percent-encoded by get_str_query(),
+            # so we can safely concatenate with '&'.
             query += new_query if query[-1] == "&" else f"&{new_query}"
         else:
             query = new_query
@@ -1507,7 +1541,18 @@ class URL:
         return self._make_child(other, encoded=encoded)
 
     def human_repr(self) -> str:
-        """Return decoded human readable string for URL representation."""
+        """Return decoded human readable string for URL representation.
+
+        Unlike ``__str__()`` which returns the percent-encoded wire
+        format, this method returns a partially-decoded form suitable
+        for human consumption.  ``human_quote()`` selectively re-encodes
+        only the characters that would break URL parsing or readability
+        (passed as the *unsafe* argument), leaving other decoded
+        characters in their raw form.
+
+        This is a display-only path and does not participate in the
+        internal encoding/decoding round-trip.
+        """
         user = human_quote(self.user, "#/:?@[]\\")
         password = human_quote(self.password, "#/:?@[]\\")
         if (host := self.host) and ":" in host:

@@ -1,0 +1,312 @@
+diff --git a/yarl/_quoters.py b/yarl/_quoters.py
+index 78f77ca..8116881 100644
+--- a/yarl/_quoters.py
++++ b/yarl/_quoters.py
+@@ -1,4 +1,90 @@
+-"""Quoting and unquoting utilities for URL parts."""
++"""Quoting and unquoting utilities for URL parts.
++
++Quoting strategy
++----------------
++
++yarl stores every URL component (scheme, netloc, path, query, fragment) in
++**percent-encoded** form internally.  The quoting layer is responsible for
++converting between the user-facing "raw" (decoded) representation and the
++internal "wire" (percent-encoded) representation.
++
++There are three distinct operations, each with its own set of quoters:
++
++1. **Quote** (fresh encoding) – the input is a *raw, unencoded* string
++   provided by the user.  Every character that is not in the safe set is
++   percent-encoded.  ``%`` in the input is treated as a literal character
++   and encoded to ``%25``.
++
++   Used by: ``URL.build()``, ``with_*()`` modifier methods.
++
++   Instances: ``QUOTER``, ``PATH_QUOTER``, ``QUERY_QUOTER``,
++   ``QUERY_PART_QUOTER``, ``FRAGMENT_QUOTER`` (all with ``requote=False``).
++
++2. **Requote** (normalisation) – the input is a URL string that *may already
++   contain* percent-encoded sequences.  Existing ``%XX`` tokens are decoded,
++   then the resulting character is compared against the safe/protected sets:
++
++   * *safe* → the raw (decoded) character is emitted.
++   * *protected* → the original ``%XX`` token is kept as-is.
++   * *otherwise* → the character is re-encoded (possibly to a different form).
++
++   Used by: ``URL(str)`` constructor (``encode_url``) for each component,
++   because user-supplied URL strings may mix encoded and unencoded parts.
++
++   Instances: ``REQUOTER``, ``PATH_REQUOTER``, ``QUERY_REQUOTER``,
++   ``FRAGMENT_REQUOTER`` (all with ``requote=True``).
++
++3. **Unquote** (decode) – the input is the internally stored percent-encoded
++   form.  ``%XX`` tokens are decoded back to raw characters, subject to an
++   ``unsafe`` list that prevents decoding of certain characters (e.g. ``+``
++   in paths must stay as literal ``+`` rather than becoming a space).
++
++   Used by: decoded accessor properties (``.user``, ``.path``,
++   ``.query_string``, ``.fragment``, ``.parts``, etc.).
++
++   Instances: ``UNQUOTER``, ``PATH_UNQUOTER``, ``PATH_SAFE_UNQUOTER``,
++   ``QS_UNQUOTER``, ``UNQUOTER_PLUS``.
++
++Display layer
++-------------
++
++``human_repr()`` operates on a fourth, separate path.  It starts from
++*already-decoded* values and selectively re-encodes only the characters
++that would break URL readability or parsing when displayed.  It uses
++``human_quote()``, which encodes a caller-supplied ``unsafe`` set plus
++non-printable characters.  This is purely a display concern and does not
++participate in the internal encoding/decoding round-trip.
++
++Quoter selection table
++----------------------
++
+++-------------+----------+--------------+-------------+---------------------+
++| Component   | Quote    | Requote      | Unquote     | Safe / Protected    |
+++=============+==========+==============+=============+=====================+
++| user        | QUOTER   | REQUOTER     | UNQUOTER    | ``ALLOWED``         |
+++-------------+----------+--------------+-------------+---------------------+
++| password    | QUOTER   | REQUOTER     | UNQUOTER    | ``ALLOWED``         |
+++-------------+----------+--------------+-------------+---------------------+
++| path        | PATH_    | PATH_        | PATH_       | safe ``@:``         |
++|             | QUOTER   | REQUOTER     | UNQUOTER    | prot ``/+``         |
+++-------------+----------+--------------+-------------+---------------------+
++| query       | QUERY_   | QUERY_       | QS_         | safe ``?/:@``       |
++| (whole)     | QUOTER   | REQUOTER     | UNQUOTER    | prot ``=+&;``       |
+++-------------+----------+--------------+-------------+---------------------+
++| query       | QUERY_   | (N/A)        | (N/A)       | safe ``?/:@``       |
++| (key/val)   | PART_    |              |             |                     |
++|             | QUOTER   |              |             |                     |
+++-------------+----------+--------------+-------------+---------------------+
++| fragment    | FRAGMENT | FRAGMENT_    | UNQUOTER    | safe ``?/:@``       |
++|             | _QUOTER  | REQUOTER     |             |                     |
+++-------------+----------+--------------+-------------+---------------------+
++
++References
++----------
++* RFC 3986 – Uniform Resource Identifier (URI): Generic Syntax
++* RFC 6874 – Representing IPv6 Zone Identifiers in Address Literals
++* https://url.spec.whatwg.org/
++"""
+ 
+ from urllib.parse import quote
+ 
+@@ -22,6 +108,13 @@ UNQUOTER_PLUS = _Unquoter(plus=True)  # to match urllib.parse.unquote_plus
+ 
+ 
+ def human_quote(s: str | None, unsafe: str) -> str | None:
++    """Percent-encode *unsafe* characters in *s* for human-readable display.
++
++    Unlike ``_Quoter`` this works on already-decoded values and only
++    encodes the caller-specified ``unsafe`` set plus non-printable
++    characters.  It is used exclusively by ``URL.human_repr()`` and
++    does **not** participate in the internal storage round-trip.
++    """
+     if not s:
+         return s
+     for c in "%" + unsafe:
+diff --git a/yarl/_quoting_py.py b/yarl/_quoting_py.py
+index 98197aa..8a413f3 100644
+--- a/yarl/_quoting_py.py
++++ b/yarl/_quoting_py.py
+@@ -20,6 +20,33 @@ utf8_decoder = codecs.getincrementaldecoder("utf-8")
+ 
+ 
+ class _Quoter:
++    """Percent-encode a string for use in a URL component.
++
++    Parameters
++    ----------
++    safe : str
++        Extra characters to leave unencoded (added to the ``ALLOWED`` set
++        which already contains unreserved characters and sub-delimiters
++        except ``+&=;`` when *qs* is ``False``).
++    protected : str
++        Characters that, when encountered inside an existing ``%XX`` token
++        during requote mode, keep their percent-encoded form rather than
++        being decoded or re-encoded.
++    qs : bool
++        When ``True``, the space character (`` ``) is encoded as ``+``
++        (application/x-www-form-urlencoded convention) and ``+&=;`` are
++        treated as unsafe (not added to ``ALLOWED``).
++    requote : bool
++        Controls how ``%`` in the input is handled:
++
++        * ``True`` (default) – existing ``%XX`` sequences are decoded and
++          the character is checked against *safe* / *protected* to decide
++          whether to emit it raw, keep the encoded form, or re-encode it.
++        * ``False`` – ``%`` is treated as a literal character and
++          percent-encoded to ``%25``.  Use this when the input is known to
++          be a raw, unencoded string.
++    """
++
+     def __init__(
+         self,
+         *,
+@@ -119,6 +146,33 @@ class _Quoter:
+ 
+ 
+ class _Unquoter:
++    """Percent-decode a URL-encoded string back to raw characters.
++
++    Parameters
++    ----------
++    ignore : str
++        Characters whose percent-encoded form should be left intact
++        (neither decoded nor re-encoded).  For example, ``"/%"`` in
++        ``PATH_SAFE_UNQUOTER`` keeps ``%2F`` and ``%25`` encoded so that
++        path separators and literal percent signs survive the round-trip.
++    unsafe : str
++        Characters whose percent-encoded form should be decoded but then
++        *re-encoded* immediately.  For example, ``"+"`` in
++        ``PATH_UNQUOTER`` ensures ``%2B`` in a path becomes ``+`` (the
++        raw character) rather than a space (the form-encoding convention).
++        Note: this is the **inverse** of ``human_quote``'s *unsafe*
++        parameter, which specifies characters to *encode*.
++    qs : bool
++        When ``True``, query-structural characters (``+=&;``) found in
++        percent-decoded form are re-encoded, and ``+`` is decoded to a
++        space character (the ``application/x-www-form-urlencoded``
++        convention).
++    plus : bool
++        When ``True``, ``+`` is decoded to a space character regardless
++        of *qs*.  Used to match ``urllib.parse.unquote_plus`` behaviour
++        in ``query_to_pairs``.
++    """
++
+     def __init__(
+         self,
+         *,
+diff --git a/yarl/_url.py b/yarl/_url.py
+index 92b6655..0cbcd32 100644
+--- a/yarl/_url.py
++++ b/yarl/_url.py
+@@ -180,7 +180,16 @@ def _encode_relative_scheme_colon(path: str) -> str:
+ 
+ @lru_cache
+ def encode_url(url_str: str) -> "URL":
+-    """Parse unencoded URL."""
++    """Parse a user-provided URL string into an internal URL object.
++
++    The input may already contain percent-encoded characters; each
++    component is normalized via requoting so that any existing percent
++    encoding matches the yarl policy for that component.
++
++    Use this when the input comes from an external source (e.g. a
++    configuration file or a network message) and you do not know
++    whether it is already percent-encoded.
++    """
+     cache: _InternalURLCache = {}
+     host: str | None
+     scheme, netloc, path, query, fragment = split_url(url_str)
+@@ -219,12 +228,18 @@ def encode_url(url_str: str) -> "URL":
+             cache["raw_password"] = raw_password
+ 
+     if path:
++        # Use PATH_REQUOTER (requote=True) because the input URL string
++        # may already contain percent-encoded path segments.  Existing
++        # %XX tokens are normalized: safe chars (@:) decoded, protected
++        # chars (/+) kept encoded, everything else re-encoded.
+         path = PATH_REQUOTER(path)
+         if netloc and "." in path:
+             path = normalize_path(path)
+         elif not scheme and not netloc:
+             path = _encode_relative_scheme_colon(path)
+     if query:
++        # QUERY_REQUOTER protects structural chars (=+&;) so separator
++        # tokens survive the requote round-trip.
+         query = QUERY_REQUOTER(query)
+     if fragment:
+         fragment = FRAGMENT_REQUOTER(fragment)
+@@ -246,7 +261,13 @@ def encode_url(url_str: str) -> "URL":
+ 
+ @lru_cache
+ def pre_encoded_url(url_str: str) -> "URL":
+-    """Parse pre-encoded URL."""
++    """Parse a URL string that is already percent-encoded.
++
++    No quoting or normalization is applied; the input is split into
++    components and stored as-is.  Use this when the input is known to
++    be already in the correct yarl encoding form (e.g. from a previous
++    ``str()`` or ``human_repr()`` call that was stored).
++    """
+     self = object.__new__(URL)
+     val = split_url(url_str)
+     self._scheme, self._netloc, self._path, self._query, self._fragment = val
+@@ -290,7 +311,11 @@ def build_pre_encoded_url(
+ def from_parts_uncached(
+     scheme: str, netloc: str, path: str, query: str, fragment: str
+ ) -> "URL":
+-    """Create a new URL from parts."""
++    """Create a new URL from parts.
++
++    All arguments must already be percent-encoded.  No quoting is
++    performed by this function.
++    """
+     self = object.__new__(URL)
+     self._scheme = scheme
+     self._netloc = netloc
+@@ -470,6 +495,10 @@ class URL:
+                 fragment,
+             )
+ 
++        # -- fresh-encoding path (encoded=False) --
++        # Each component is encoded with a *_QUOTER (requote=False) because
++        # the inputs are assumed to be raw, unencoded values.  ``%`` in the
++        # input is treated as a literal character and encoded to ``%25``.
+         self = object.__new__(URL)
+         self._scheme = scheme
+         _host: str | None = None
+@@ -512,6 +541,8 @@ class URL:
+         raise TypeError(f"Inheriting a class {cls!r} from URL is forbidden")
+ 
+     def __str__(self) -> str:
++        # Returns the percent-encoded "wire format".  For a
++        # human-readable representation use ``human_repr()`` instead.
+         if not self._path and self._netloc and (self._query or self._fragment):
+             path = "/"
+         else:
+@@ -1236,6 +1267,9 @@ class URL:
+ 
+         """
+         # N.B. doesn't cleanup query/fragment
++        # get_str_query() handles encoding internally:
++        # - raw str       → QUERY_QUOTER (whole-string quote)
++        # - Mapping/seq   → QUERY_PART_QUOTER (per-key/per-value quote)
+         query = get_str_query(*args, **kwargs) or ""
+         return from_parts_uncached(
+             self._scheme, self._netloc, self._path, query, self._fragment
+@@ -1260,8 +1294,8 @@ class URL:
+         if not (new_query := get_str_query(*args, **kwargs)):
+             return self
+         if query := self._query:
+-            # both strings are already encoded so we can use a simple
+-            # string join
++            # Both strings are already percent-encoded by get_str_query(),
++            # so we can safely concatenate with '&'.
+             query += new_query if query[-1] == "&" else f"&{new_query}"
+         else:
+             query = new_query
+@@ -1507,7 +1541,18 @@ class URL:
+         return self._make_child(other, encoded=encoded)
+ 
+     def human_repr(self) -> str:
+-        """Return decoded human readable string for URL representation."""
++        """Return decoded human readable string for URL representation.
++
++        Unlike ``__str__()`` which returns the percent-encoded wire
++        format, this method returns a partially-decoded form suitable
++        for human consumption.  ``human_quote()`` selectively re-encodes
++        only the characters that would break URL parsing or readability
++        (passed as the *unsafe* argument), leaving other decoded
++        characters in their raw form.
++
++        This is a display-only path and does not participate in the
++        internal encoding/decoding round-trip.
++        """
+         user = human_quote(self.user, "#/:?@[]\\")
+         password = human_quote(self.password, "#/:?@[]\\")
+         if (host := self.host) and ":" in host:

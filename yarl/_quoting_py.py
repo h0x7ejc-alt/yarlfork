@@ -20,6 +20,33 @@ utf8_decoder = codecs.getincrementaldecoder("utf-8")
 
 
 class _Quoter:
+    """Percent-encode a string for use in a URL component.
+
+    Parameters
+    ----------
+    safe : str
+        Extra characters to leave unencoded (added to the ``ALLOWED`` set
+        which already contains unreserved characters and sub-delimiters
+        except ``+&=;`` when *qs* is ``False``).
+    protected : str
+        Characters that, when encountered inside an existing ``%XX`` token
+        during requote mode, keep their percent-encoded form rather than
+        being decoded or re-encoded.
+    qs : bool
+        When ``True``, the space character (`` ``) is encoded as ``+``
+        (application/x-www-form-urlencoded convention) and ``+&=;`` are
+        treated as unsafe (not added to ``ALLOWED``).
+    requote : bool
+        Controls how ``%`` in the input is handled:
+
+        * ``True`` (default) – existing ``%XX`` sequences are decoded and
+          the character is checked against *safe* / *protected* to decide
+          whether to emit it raw, keep the encoded form, or re-encode it.
+        * ``False`` – ``%`` is treated as a literal character and
+          percent-encoded to ``%25``.  Use this when the input is known to
+          be a raw, unencoded string.
+    """
+
     def __init__(
         self,
         *,
@@ -119,6 +146,33 @@ class _Quoter:
 
 
 class _Unquoter:
+    """Percent-decode a URL-encoded string back to raw characters.
+
+    Parameters
+    ----------
+    ignore : str
+        Characters whose percent-encoded form should be left intact
+        (neither decoded nor re-encoded).  For example, ``"/%"`` in
+        ``PATH_SAFE_UNQUOTER`` keeps ``%2F`` and ``%25`` encoded so that
+        path separators and literal percent signs survive the round-trip.
+    unsafe : str
+        Characters whose percent-encoded form should be decoded but then
+        *re-encoded* immediately.  For example, ``"+"`` in
+        ``PATH_UNQUOTER`` ensures ``%2B`` in a path becomes ``+`` (the
+        raw character) rather than a space (the form-encoding convention).
+        Note: this is the **inverse** of ``human_quote``'s *unsafe*
+        parameter, which specifies characters to *encode*.
+    qs : bool
+        When ``True``, query-structural characters (``+=&;``) found in
+        percent-decoded form are re-encoded, and ``+`` is decoded to a
+        space character (the ``application/x-www-form-urlencoded``
+        convention).
+    plus : bool
+        When ``True``, ``+`` is decoded to a space character regardless
+        of *qs*.  Used to match ``urllib.parse.unquote_plus`` behaviour
+        in ``query_to_pairs``.
+    """
+
     def __init__(
         self,
         *,
