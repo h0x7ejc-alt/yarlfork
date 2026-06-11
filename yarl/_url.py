@@ -43,6 +43,7 @@ from ._query import (
 from ._quoters import (
     FRAGMENT_QUOTER,
     FRAGMENT_REQUOTER,
+    HUMAN_UNSAFE,
     PATH_QUOTER,
     PATH_REQUOTER,
     PATH_SAFE_UNQUOTER,
@@ -1508,20 +1509,23 @@ class URL:
 
     def human_repr(self) -> str:
         """Return decoded human readable string for URL representation."""
-        user = human_quote(self.user, "#/:?@[]\\")
-        password = human_quote(self.password, "#/:?@[]\\")
+        user = human_quote(self.user, HUMAN_UNSAFE["userinfo"])
+        password = human_quote(self.password, HUMAN_UNSAFE["userinfo"])
         if (host := self.host) and ":" in host:
             host = f"[{host}]"
-        path = human_quote(self.path, "#?")
+        path = human_quote(self.path, HUMAN_UNSAFE["path"])
         if TYPE_CHECKING:
             assert path is not None
         if not self._scheme and not self._netloc:
             path = _encode_relative_scheme_colon(path)
         query_string = "&".join(
-            "{}={}".format(human_quote(k, "#&+;="), human_quote(v, "#&+;="))
+            "{}={}".format(
+                human_quote(k, HUMAN_UNSAFE["query_key"]),
+                human_quote(v, HUMAN_UNSAFE["query_value"]),
+            )
             for k, v in self.query.items()
         )
-        fragment = human_quote(self.fragment, "")
+        fragment = human_quote(self.fragment, HUMAN_UNSAFE["fragment"])
         if TYPE_CHECKING:
             assert fragment is not None
         netloc = make_netloc(user, password, host, self.explicit_port)
